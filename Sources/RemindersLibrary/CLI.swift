@@ -7,6 +7,10 @@ private func validateURL(_ url: String?) throws {
     }
 }
 
+private func normalizedTags(_ tags: [String]) -> [String] {
+    tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }.filter { !$0.isEmpty }
+}
+
 struct CompletionOptions: ParsableArguments {
     @Flag(help: "Show completed items only")
     var onlyCompleted = false
@@ -158,6 +162,18 @@ struct Add: AsyncParsableCommand {
     @Option(help: "A URL to attach to the reminder")
     var url: String?
 
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
     @OptionGroup
     var repeatOptions: RepeatOptions
 
@@ -182,8 +198,14 @@ struct Add: AsyncParsableCommand {
             recurrence: self.repeatOptions.recurrence,
             url: self.url,
             alarms: self.alarm)
+        let reminderKitChanges = ReminderKitChanges(
+            flagged: self.flag ? true : nil,
+            addTags: normalizedTags(self.tag),
+            assignee: self.assign,
+            url: self.url)
         try await Reminders.authorized().addReminder(
-            toListNamed: self.listName, changes: changes, outputFormat: format)
+            toListNamed: self.listName, changes: changes, reminderKitChanges: reminderKitChanges,
+            parentIndex: self.parent, outputFormat: format)
     }
 }
 
@@ -304,6 +326,33 @@ struct Edit: AsyncParsableCommand {
     @Flag(help: "Remove all alarms, applied before any --alarm")
     var clearAlarms = false
 
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Flag(help: "Unflag the reminder")
+    var unflag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Remove a tag (repeatable)")
+    var removeTag: [String] = []
+
+    @Flag(help: "Remove all tags, applied before any --tag")
+    var clearTags = false
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Flag(help: "Make this subtask a top level reminder")
+    var unnest = false
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
+    @Flag(help: "Remove the assignee")
+    var unassign = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -324,9 +373,29 @@ struct Edit: AsyncParsableCommand {
             throw ValidationError("Cannot specify both --repeat and --clear-repeat")
         }
 
-        if self.changes.isEmpty {
+        for (first, second, names) in [
+            (self.flag, self.unflag, "--flag and --unflag"),
+            (self.parent != nil, self.unnest, "--parent and --unnest"),
+            (self.assign != nil, self.unassign, "--assign and --unassign"),
+        ] where first && second {
+            throw ValidationError("Cannot specify both \(names)")
+        }
+
+        if self.changes.isEmpty && self.reminderKitChanges.isEmpty && self.parent == nil {
             throw ValidationError("Must specify either new reminder content or a field to change")
         }
+    }
+
+    var reminderKitChanges: ReminderKitChanges {
+        ReminderKitChanges(
+            flagged: self.flag ? true : self.unflag ? false : nil,
+            addTags: normalizedTags(self.tag),
+            removeTags: normalizedTags(self.removeTag),
+            clearTags: self.clearTags,
+            unnest: self.unnest,
+            assignee: self.assign,
+            unassign: self.unassign,
+            url: self.url)
     }
 
     var changes: ReminderChanges {
@@ -346,7 +415,8 @@ struct Edit: AsyncParsableCommand {
 
     func run() async throws {
         try await Reminders.authorized().edit(
-            itemAtIndex: self.index, onListNamed: self.listName, changes: self.changes)
+            itemAtIndex: self.index, onListNamed: self.listName, changes: self.changes,
+            reminderKitChanges: self.reminderKitChanges, parentIndex: self.parent)
     }
 }
 
