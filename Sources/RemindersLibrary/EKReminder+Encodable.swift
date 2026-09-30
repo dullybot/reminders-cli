@@ -17,6 +17,7 @@ extension EKReminder: @retroactive Encodable {
         case dueDate
         case list
         case recurrence
+        case alarms
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -42,6 +43,11 @@ extension EKReminder: @retroactive Encodable {
                 }
                 break
             }
+        }
+
+        let alarmDates = (self.alarms ?? []).compactMap { $0.fireDate(for: self) }
+        if !alarmDates.isEmpty {
+            try container.encode(alarmDates.compactMap(format), forKey: .alarms)
         }
 
         if let startDateComponents = self.startDateComponents {

@@ -1,3 +1,4 @@
+import ArgumentParser
 import EventKit
 import Foundation
 
@@ -11,13 +12,16 @@ struct ReminderChanges {
     var priority: Priority?
     var recurrence: Recurrence?
     var clearRecurrence = false
+    var alarms: [AlarmSpec] = []
+    var clearAlarms = false
 
     var isEmpty: Bool {
         self.title == nil && self.notes == nil && self.dueDate == nil && !self.clearDueDate
             && self.priority == nil && self.recurrence == nil && !self.clearRecurrence
+            && self.alarms.isEmpty && !self.clearAlarms
     }
 
-    func apply(to reminder: EKReminder) {
+    func apply(to reminder: EKReminder) throws {
         if let title {
             reminder.title = title
         }
@@ -49,6 +53,18 @@ struct ReminderChanges {
 
         if let recurrence {
             reminder.addRecurrenceRule(recurrence.rule)
+        }
+
+        if self.clearAlarms {
+            removeAlarms(from: reminder)
+        }
+
+        for alarm in self.alarms {
+            guard let date = alarm.date(dueDate: reminder.dueDateComponents?.date) else {
+                throw ValidationError("Alarms relative to the due date need a reminder with a due date")
+            }
+
+            reminder.addAlarm(EKAlarm(absoluteDate: date))
         }
     }
 }

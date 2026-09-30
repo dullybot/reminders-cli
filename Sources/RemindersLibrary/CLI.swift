@@ -142,12 +142,23 @@ struct Add: AsyncParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
     @OptionGroup
     var repeatOptions: RepeatOptions
 
     func validate() throws {
         if self.repeatOptions.frequency != nil && self.dueDate == nil {
             throw ValidationError("--repeat requires --due-date")
+        }
+
+        if self.alarm.contains(where: \.needsDueDate) && self.dueDate == nil {
+            throw ValidationError("Relative --alarm offsets require --due-date")
         }
     }
 
@@ -157,7 +168,8 @@ struct Add: AsyncParsableCommand {
             notes: self.notes,
             dueDate: self.dueDate,
             priority: self.priority,
-            recurrence: self.repeatOptions.recurrence)
+            recurrence: self.repeatOptions.recurrence,
+            alarms: self.alarm)
         try await Reminders.authorized().addReminder(
             toListNamed: self.listName, changes: changes, outputFormat: format)
     }
@@ -267,6 +279,16 @@ struct Edit: AsyncParsableCommand {
     @Flag(help: "Stop the reminder repeating")
     var clearRepeat = false
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    @Flag(help: "Remove all alarms, applied before any --alarm")
+    var clearAlarms = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -299,7 +321,9 @@ struct Edit: AsyncParsableCommand {
             clearDueDate: self.clearDueDate,
             priority: self.priority,
             recurrence: self.repeatOptions.recurrence,
-            clearRecurrence: self.clearRepeat)
+            clearRecurrence: self.clearRepeat,
+            alarms: self.alarm,
+            clearAlarms: self.clearAlarms)
     }
 
     func run() async throws {

@@ -32,11 +32,13 @@ func relativeDueDate(_ date: Date, relativeTo now: Date = Date(), calendar: Cale
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
+    let alarmDates = (reminder.alarms ?? []).compactMap { $0.fireDate(for: reminder) }
+    let alarmString = alarmDates.isEmpty ? "" : " (alarms: \(alarmDates.map { relativeDueDate($0) }.joined(separator: ", ")))"
     let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(repeatString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(repeatString)\(alarmString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -222,9 +224,9 @@ public final class Reminders {
 
     func edit(itemAtIndex index: String, onListNamed name: String, changes: ReminderChanges) async {
         let reminder = await self.reminder(at: index, onListNamed: name, displayOptions: .incomplete)
-        changes.apply(to: reminder)
 
         do {
+            try changes.apply(to: reminder)
             try self.store.save(reminder, commit: true)
             print("Updated reminder '\(reminder.title ?? "")'")
         } catch let error {
@@ -268,9 +270,9 @@ public final class Reminders {
         let calendar = self.calendar(withName: name)
         let reminder = EKReminder(eventStore: self.store)
         reminder.calendar = calendar
-        changes.apply(to: reminder)
 
         do {
+            try changes.apply(to: reminder)
             try self.store.save(reminder, commit: true)
             switch (outputFormat) {
             case .json:
