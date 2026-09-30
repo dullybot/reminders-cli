@@ -18,6 +18,10 @@ struct RelativeDueDateTests {
         #expect(relativeDueDate(try date(6, 23), relativeTo: now, calendar: calendar, locale: locale) == "2 days ago")
     }
 
+    @Test func allDayToday() throws {
+        #expect(relativeDueDate(try date(8, 0), allDay: true, relativeTo: try date(8, 15), calendar: calendar, locale: locale) == "today")
+    }
+
     @Test func sameDayUsesTime() throws {
         let now = try date(8, 9)
         #expect(relativeDueDate(try date(8, 12), relativeTo: now, calendar: calendar, locale: locale) == "in 3 hours")

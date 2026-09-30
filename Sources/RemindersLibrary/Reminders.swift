@@ -9,13 +9,17 @@ private extension EKReminder {
 }
 
 private func formattedDueDate(from reminder: EKReminder) -> String? {
-    return reminder.dueDateComponents?.date.map { relativeDueDate($0) }
+    guard let components = reminder.dueDateComponents, let date = components.date else {
+        return nil
+    }
+
+    return relativeDueDate(date, allDay: components.hour == nil)
 }
 
 /// Describes a due date relative to now, counting calendar days rather than
 /// elapsed 24 hour periods once it isn't today.
-func relativeDueDate(_ date: Date, relativeTo now: Date = Date(), calendar: Calendar = .current,
-    locale: Locale = .current) -> String
+func relativeDueDate(_ date: Date, allDay: Bool = false, relativeTo now: Date = Date(),
+    calendar: Calendar = .current, locale: Locale = .current) -> String
 {
     let formatter = RelativeDateTimeFormatter()
     formatter.calendar = calendar
@@ -23,6 +27,11 @@ func relativeDueDate(_ date: Date, relativeTo now: Date = Date(), calendar: Cale
     let days = calendar.dateComponents(
         [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
     if days == 0 {
+        if allDay {
+            formatter.dateTimeStyle = .named
+            return formatter.localizedString(from: DateComponents(day: 0))
+        }
+
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
@@ -402,8 +411,9 @@ private struct UncheckedReminders: @unchecked Sendable {
 func dueDayRange(for date: Date, includeOverdue: Bool, calendar: Calendar = .current)
     -> (start: Date?, end: Date?)
 {
+    // EventKit's start bound is exclusive, which would drop all-day reminders due at midnight.
     let start = calendar.startOfDay(for: date)
-    return (includeOverdue ? nil : start, calendar.date(byAdding: .day, value: 1, to: start))
+    return (includeOverdue ? nil : start.addingTimeInterval(-1), calendar.date(byAdding: .day, value: 1, to: start))
 }
 
 private func isDue(_ reminder: EKReminder, on dueDate: DateComponents?, includeOverdue: Bool) -> Bool {
