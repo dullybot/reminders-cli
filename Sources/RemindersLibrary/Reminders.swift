@@ -107,7 +107,8 @@ public final class Reminders {
     private let store = EKEventStore()
     private lazy var calendars = store.calendars(for: .reminder).filter { $0.allowsContentModifications }
     /// Optional: output simply omits Reminders.app-only fields without ReminderKit.
-    private lazy var extras: ReminderExtras? = try? ReminderKitBridge()
+    private lazy var reminderKit = Result<ReminderExtras, Error> { try ReminderKitBridge() }
+    private var extras: ReminderExtras? { try? self.reminderKit.get() }
 
     private init() {}
 
@@ -252,6 +253,7 @@ public final class Reminders {
         reminderKitChanges.parent = parentIndex.map { self.reminder(from: reminders, at: $0, onListNamed: name) }
 
         do {
+            let reminderKitChanges = try self.prepare(reminderKitChanges, on: reminder.calendar)
             try changes.apply(to: reminder)
             try self.store.save(reminder, commit: true)
             try self.apply(reminderKitChanges, to: reminder)
@@ -308,6 +310,7 @@ public final class Reminders {
         reminder.calendar = calendar
 
         do {
+            let reminderKitChanges = try self.prepare(reminderKitChanges, on: calendar)
             try changes.apply(to: reminder)
             try self.store.save(reminder, commit: true)
             try self.apply(reminderKitChanges, to: reminder)
@@ -355,12 +358,19 @@ public final class Reminders {
         return fetched.value
     }
 
-    /// Applies Reminders.app-only changes after the EventKit save. A URL is also
-    /// stored through EventKit, so it only goes through ReminderKit when available.
+    /// Checks Reminders.app-only changes before anything is saved, so an unsupported
+    /// change fails without leaving a half-applied edit. A URL alone is also stored
+    /// through EventKit, so its attachment is skipped when ReminderKit can't add it.
+    private func prepare(_ changes: ReminderKitChanges, on calendar: EKCalendar) throws -> ReminderKitChanges {
+        if !changes.needsReminderKit {
+            return changes.isEmpty ? changes : (try? self.extras?.supported(changes, on: calendar)) ?? ReminderKitChanges()
+        }
+
+        return try self.reminderKit.get().supported(changes, on: calendar)
+    }
+
     private func apply(_ changes: ReminderKitChanges, to reminder: EKReminder) throws {
-        if changes.needsReminderKit {
-            try ReminderKitBridge().apply(changes, to: reminder)
-        } else if !changes.isEmpty {
+        if !changes.isEmpty {
             try self.extras?.apply(changes, to: reminder)
         }
     }

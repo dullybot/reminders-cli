@@ -47,10 +47,12 @@ struct ReminderKitChanges {
 protocol ReminderExtras {
     func details(for reminders: [EKReminder]) -> [String: ReminderDetails]
     func apply(_ changes: ReminderKitChanges, to reminder: EKReminder) throws
+    func supported(_ changes: ReminderKitChanges, on calendar: EKCalendar) throws -> ReminderKitChanges
 }
 
 enum ReminderKitError: LocalizedError {
     case unavailable(String)
+    case unsupported(String, list: String)
     case notFound(String)
     case noSuchAssignee(String, [String])
     case failed(String)
@@ -59,6 +61,8 @@ enum ReminderKitError: LocalizedError {
         switch self {
             case .unavailable(let symbol):
                 return "this feature needs Apple's private ReminderKit framework, which is missing '\(symbol)' on this macOS version"
+            case .unsupported(let feature, let list):
+                return "the list '\(list)' doesn't support \(feature); use a list in an iCloud account (local accounts don't have these Reminders.app features)"
             case .notFound(let title):
                 return "ReminderKit couldn't find the reminder '\(title)'"
             case .noSuchAssignee(let name, let sharees):
@@ -80,7 +84,7 @@ final class ReminderKitBridge: ReminderExtras {
     /// Every class, `+`class and `-`instance method used below, checked up front so a
     /// macOS update that renames one fails with a clear error instead of crashing.
     private static let requirements: [String: [String]] = [
-        "REMStore": ["-init", "-fetchRemindersWithObjectIDs:error:"],
+        "REMStore": ["-init", "-fetchRemindersWithObjectIDs:error:", "-fetchListWithObjectID:error:"],
         "REMReminder": ["+objectIDWithUUID:", "-storage", "-list", "-attachmentContext"],
         "REMReminderStorage": ["-objectID", "-flagged", "-hashtags", "-parentReminderID", "-currentAssignment"],
         "REMSaveRequest": ["-initWithStore:", "-updateReminder:", "-saveSynchronouslyWithError:"],
@@ -97,7 +101,12 @@ final class ReminderKitBridge: ReminderExtras {
         "REMReminderAttachmentContextChangeItem": ["-setURLAttachmentWithURL:", "-removeURLAttachments"],
         "REMReminderAttachmentContext": ["-urlAttachments"],
         "REMURLAttachment": ["-url"],
-        "REMList": ["-shareeContext"],
+        "REMList": ["+objectIDWithUUID:", "-shareeContext", "-account"],
+        "REMAccount": ["-capabilities"],
+        "REMAccountCapabilities": [
+            "-supportsFlagged", "-supportsHashtags", "-supportsSubtasks", "-supportsAssignments",
+            "-supportsAttachments",
+        ],
         "REMListShareeContext": ["-sharees"],
         "REMSharee": ["+nullifiedAssignmentOriginatorID", "-objectID", "-displayName", "-firstName", "-address"],
         "REMAssignment": ["-assigneeID"],
@@ -157,6 +166,32 @@ final class ReminderKitBridge: ReminderExtras {
         }
 
         return details
+    }
+
+    /// Fails before anything is saved if the list's account can't store a requested
+    /// change. A URL is also stored through EventKit, so it's dropped instead.
+    func supported(_ changes: ReminderKitChanges, on calendar: EKCalendar) throws -> ReminderKitChanges {
+        let capabilities = try self.capabilities(of: calendar)
+        func supports(_ key: String) -> Bool {
+            (capabilities.value(forKey: key) as? Bool) ?? false
+        }
+
+        let required: [(Bool, String, String)] = [
+            (changes.flagged != nil, "supportsFlagged", "flags"),
+            (changes.clearTags || !changes.addTags.isEmpty || !changes.removeTags.isEmpty, "supportsHashtags", "tags"),
+            (changes.parent != nil || changes.unnest, "supportsSubtasks", "subtasks"),
+            (changes.assignee != nil || changes.unassign, "supportsAssignments", "assignees"),
+        ]
+        for (requested, key, feature) in required where requested && !supports(key) {
+            throw ReminderKitError.unsupported(feature, list: calendar.title)
+        }
+
+        var changes = changes
+        if !supports("supportsAttachments") {
+            changes.url = nil
+        }
+
+        return changes
     }
 
     func apply(_ changes: ReminderKitChanges, to reminder: EKReminder) throws {
@@ -256,6 +291,27 @@ final class ReminderKitBridge: ReminderExtras {
         return byIdentifier
     }
 
+    /// `calendarIdentifier` is the ReminderKit list UUID for lists stored by remindd.
+    private func capabilities(of calendar: EKCalendar) throws -> NSObject {
+        guard let uuid = UUID(uuidString: calendar.calendarIdentifier) else {
+            throw ReminderKitError.notFound(calendar.title)
+        }
+
+        let listClass: NSObject.Type = try objcClass("REMList")
+        let objectID = try call(listClass, "objectIDWithUUID:", uuid as NSUUID)
+        typealias Fetch = @convention(c) (NSObject, Selector, AnyObject, UnsafeMutablePointer<NSError?>?)
+            -> Unmanaged<AnyObject>?
+        let selector = "fetchListWithObjectID:error:"
+        var error: NSError?
+        guard let list = try implementation(self.store, selector, Fetch.self)(
+            self.store, NSSelectorFromString(selector), objectID, &error)?.takeUnretainedValue() as? NSObject
+        else {
+            throw ReminderKitError.notFound(calendar.title)
+        }
+
+        return try property(try property(list, "account"), "capabilities")
+    }
+
     private func updateTags(of hashtagContext: NSObject, _ changes: ReminderKitChanges) throws {
         let existing = (hashtagContext.value(forKey: "hashtags") as? NSSet)?.allObjects as? [NSObject] ?? []
         let removed = Set(changes.removeTags.map { $0.lowercased() })
@@ -349,8 +405,12 @@ private func implementation<Function>(_ target: AnyObject, _ selector: String, _
 }
 
 private func property(_ target: NSObject, _ key: String) throws -> NSObject {
-    guard target.responds(to: NSSelectorFromString(key)), let value = target.value(forKey: key) as? NSObject else {
+    guard target.responds(to: NSSelectorFromString(key)) else {
         throw ReminderKitError.unavailable("\(type(of: target)).\(key)")
+    }
+
+    guard let value = target.value(forKey: key) as? NSObject else {
+        throw ReminderKitError.failed("\(type(of: target)).\(key) is nil")
     }
 
     return value
