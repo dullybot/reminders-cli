@@ -1,100 +1,96 @@
 import Foundation
 @testable import RemindersLibrary
-import XCTest
+import Testing
 
-final class NaturalLanguageTests: XCTestCase {
+struct NaturalLanguageTests {
     private let calendar = Calendar(identifier: .gregorian)
 
-    func testYesterday() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "yesterday"))
-        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: Date()))
+    @Test func yesterday() throws {
+        let components = try #require(DateComponents(argument: "yesterday"))
+        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: Date()))
         let expectedComponents = calendar.dateComponents(
-            calendarComponents(except: timeComponents), from: tomorrow)
+            calendarComponents(except: timeComponents), from: yesterday)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testTodayString() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "today"))
+    @Test func todayString() throws {
+        let components = try #require(DateComponents(argument: "today"))
         let expectedComponents = calendar.dateComponents(
             calendarComponents(except: timeComponents), from: Date())
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testTodayNoon() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "12:00"))
-        let today = try XCTUnwrap(calendar.date(bySettingHour: 12, minute: 0, second: 0, of: Date()))
-        let expectedComponents = calendar.dateComponents(calendarComponents(), from: today)
+    @Test func todayNoon() throws {
+        let components = try #require(DateComponents(argument: "12:00"))
+        let today = try #require(calendar.date(bySettingHour: 12, minute: 0, second: 0, of: Date()))
+        let expectedComponents = calendar.dateComponents(in: .current, from: today)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testTonight() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "tonight"))
-        let today = try XCTUnwrap(calendar.date(bySettingHour: 19, minute: 0, second: 0, of: Date()))
-        let expectedComponents = calendar.dateComponents(calendarComponents(), from: today)
+    @Test func tonight() throws {
+        let components = try #require(DateComponents(argument: "tonight"))
+        let today = try #require(calendar.date(bySettingHour: 19, minute: 0, second: 0, of: Date()))
+        let expectedComponents = calendar.dateComponents(in: .current, from: today)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testTomorrow() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "tomorrow"))
-        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: Date()))
+    @Test func tomorrow() throws {
+        let components = try #require(DateComponents(argument: "tomorrow"))
+        let tomorrow = try #require(calendar.date(byAdding: .day, value: 1, to: Date()))
         let expectedComponents = calendar.dateComponents(
             calendarComponents(except: timeComponents), from: tomorrow)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testUsesGregorianCalendar() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "tomorrow"))
+    @Test func usesGregorianCalendar() throws {
+        let components = try #require(DateComponents(argument: "tomorrow"))
 
-        XCTAssertEqual(components.calendar?.identifier, .gregorian)
+        #expect(components.calendar?.identifier == .gregorian)
     }
 
-    func testTomorrowAtTime() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "tomorrow 9pm"))
-        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: Date()))
-        let tomorrowAt9 = try XCTUnwrap(
+    @Test func tomorrowAtTime() throws {
+        let components = try #require(DateComponents(argument: "tomorrow 9pm"))
+        let tomorrow = try #require(calendar.date(byAdding: .day, value: 1, to: Date()))
+        let tomorrowAt9 = try #require(
             calendar.date(bySettingHour: 21, minute: 0, second: 0, of: tomorrow))
-        let expectedComponents = calendar.dateComponents(calendarComponents(), from: tomorrowAt9)
+        let expectedComponents = calendar.dateComponents(in: .current, from: tomorrowAt9)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testRelativeDayCount() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "in 2 days"))
-        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 2, to: Date()))
+    @Test func relativeDayCount() throws {
+        let components = try #require(DateComponents(argument: "in 2 days"))
+        let inTwoDays = try #require(calendar.date(byAdding: .day, value: 2, to: Date()))
         let expectedComponents = calendar.dateComponents(
-            calendarComponents(except: timeComponents), from: tomorrow)
+            calendarComponents(except: timeComponents), from: inTwoDays)
 
-        XCTAssertEqual(components, expectedComponents)
+        #expect(components == expectedComponents)
     }
 
-    func testNextSaturday() throws {
-        let components = try XCTUnwrap(DateComponents(argument: "next saturday"))
-        let date = try XCTUnwrap(calendar.date(from: components))
+    @Test func nextSaturday() throws {
+        let components = try #require(DateComponents(argument: "next saturday"))
+        let date = try #require(calendar.date(from: components))
 
-        XCTAssertTrue(calendar.isDateInWeekend(date))
+        #expect(calendar.isDateInWeekend(date))
     }
 
     // FB8921206
-    func testNextWeekend() throws {
+    @Test func nextWeekend() {
         // TODO: This should be inverted but DataDetector doesn't support it right now
-        XCTAssertNil(DateComponents(argument: "next weekend"))
-        // let components = try XCTUnwrap(DateComponents(argument: "next weekend"))
-        // let date = try XCTUnwrap(calendar.date(from: components))
-
-        // XCTAssertTrue(calendar.isDateInWeekend(date))
+        #expect(DateComponents(argument: "next weekend") == nil)
     }
 
-    func testSpecificDays() throws {
-        XCTAssertNotNil(DateComponents(argument: "next monday"))
-        XCTAssertNotNil(DateComponents(argument: "on monday at 9pm"))
+    @Test func specificDays() {
+        #expect(DateComponents(argument: "next monday") != nil)
+        #expect(DateComponents(argument: "on monday at 9pm") != nil)
     }
 
-    func testIgnoreRandomString() {
-        XCTAssertNil(DateComponents(argument: "blah tomorrow 9pm"))
+    @Test func ignoreRandomString() {
+        #expect(DateComponents(argument: "blah tomorrow 9pm") == nil)
     }
 }

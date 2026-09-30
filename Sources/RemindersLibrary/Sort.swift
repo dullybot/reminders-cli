@@ -19,7 +19,7 @@ public enum Sort: String, Decodable, ExpressibleByArgument, CaseIterable {
 }
 
 // TODO: Replace with SortOrder when we drop < macOS 12.0
-public enum CustomSortOrder: String, Decodable, ExpressibleByArgument, CaseIterable {
+public enum CustomSortOrder: String, Decodable, ExpressibleByArgument, CaseIterable, Sendable {
     case ascending
     case descending
 
