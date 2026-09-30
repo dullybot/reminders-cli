@@ -56,6 +56,7 @@ Delete `CLI Test 2` in Reminders.app.
 | `$R show "CLI Test" --only-completed` | Empty. |
 | `$R show-all --due-date tomorrow` | Lists `CLI Test: <n>: Second (in 1 day)` and other lists' reminders due tomorrow, nothing without a due date. |
 | `$R show-all --due-date today --include-overdue` | Only reminders due today or earlier. |
+| `$R add "CLI Test" AllDay --due-date today` then `$R show-all --due-date today` | Includes `CLI Test: <n>: AllDay (today)` (all-day reminders due at midnight are not dropped). |
 
 ## 4. Relative dates (#101)
 
@@ -79,7 +80,7 @@ Delete `CLI Test 2` in Reminders.app.
 | Command | Expected |
 | --- | --- |
 | `$R add "CLI Test" Noted --notes "some body"` then `$R show "CLI Test"` | `Noted (some body)` |
-| `$R edit "CLI Test" <index of Noted> --clear-notes` | `Updated reminder 'Noted'`; `show` prints `Noted` with no `( )`. Reminders.app shows no notes. |
+| `$R edit "CLI Test" <index of Noted> --clear-notes` | `Updated reminder 'Noted'`; `show` prints `Noted` with no `()` and JSON has no `notes` key. Reminders.app shows no notes. |
 | `$R edit "CLI Test" <index> --notes "x"` then `$R edit "CLI Test" <index> --notes ""` | Both succeed; notes removed again. |
 | `$R add "CLI Test" Empty --notes ""` | Succeeds; `show` prints `Empty` without `()`. |
 | `$R add "CLI Test" Bad --notes=""` | `Error: Missing value for '--notes <notes>'` (ArgumentParser limitation; use `--notes ""` or `--clear-notes`). |
@@ -105,7 +106,7 @@ Delete `CLI Test 2` in Reminders.app.
 | `$R add "CLI Test" Call --due-date "tomorrow 6pm" --alarm -15m --alarm -1h` | Added. |
 | `$R show "CLI Test"` | `Call (in 1 day) (alarms: in 1 day, in 1 day, in 1 day)` (due-time alarm plus 5:45pm and 5pm). |
 | `$R show "CLI Test" -f json` | `Call` has `"alarms"` with three ISO dates: tomorrow 18:00, 17:45 and 17:00 local time. |
-| `$R add "CLI Test" Soon --due-date "today 11pm" --alarm "in 2 minutes"` | Added; a notification for `Soon` fires ~2 minutes later. |
+| `$R add "CLI Test" Soon --due-date "in 2 hours" --alarm "in 2 minutes"` | Added; `show` prints `(alarms: in 1 minute, in 1 hour)` and a notification for `Soon` fires ~2 minutes later. `in N minutes/hours` works for `--due-date` too. |
 | `$R add "CLI Test" NoDue --alarm -15m` | `Error: Relative --alarm offsets require --due-date` |
 | `$R edit "CLI Test" <index of Call> --clear-alarms` | Updated; `show` has no `(alarms: ...)`. |
 | `$R edit "CLI Test" <index of Call> --alarm +30m` | Updated; JSON `alarms` has tomorrow 18:30. |
@@ -125,9 +126,26 @@ JSON output and the fired notification are the proof.
 | `$R edit "CLI Test" <index of Read> --url ""` | Updated; URL gone from `show`. |
 | `$R add "CLI Test" X --url "not a url"` | `Error: --url must be an absolute URL such as https://example.com` |
 
-**Reminders.app:** `Read` shows the URL (link preview) under the title before the
-`--url ""` edit and not after. If the link only shows up in JSON but not in
-Reminders.app, the ReminderKit URL attachment failed; report it.
+**Reminders.app:** on an iCloud list, `Read` shows the URL (link preview) under
+the title before the `--url ""` edit and not after. On a local ("On My Mac")
+account attachments aren't supported, so the URL is stored through EventKit only:
+`show`/JSON still print it, Reminders.app may not.
+
+## 10-13. Local accounts
+
+Flags, tags, subtasks and assignees need an iCloud list: local accounts report
+no support for them. On a local list every such command fails before anything
+is saved, e.g.
+
+```
+$ $R add "CLI Test" Important --flag
+Failed to save reminder with error: the list 'CLI Test' doesn't support flags; use a list in an iCloud account (local accounts don't have these Reminders.app features)
+```
+
+and `show` confirms `Important` was not added (same for `--tag` → "tags",
+`--parent`/`--unnest` → "subtasks", `--assign` → "assignees"; an edit that also
+changes the title leaves the title unchanged). Run sections 10-13 against an
+iCloud list.
 
 ## 10. Flagged (item 9)
 
