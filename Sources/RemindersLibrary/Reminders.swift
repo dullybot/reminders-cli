@@ -37,8 +37,9 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
+    let urlString = reminder.url.map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(repeatString)\(alarmString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(repeatString)\(alarmString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {

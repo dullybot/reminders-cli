@@ -12,13 +12,15 @@ struct ReminderChanges {
     var priority: Priority?
     var recurrence: Recurrence?
     var clearRecurrence = false
+    /// An empty string clears the URL.
+    var url: String?
     var alarms: [AlarmSpec] = []
     var clearAlarms = false
 
     var isEmpty: Bool {
         self.title == nil && self.notes == nil && self.dueDate == nil && !self.clearDueDate
             && self.priority == nil && self.recurrence == nil && !self.clearRecurrence
-            && self.alarms.isEmpty && !self.clearAlarms
+            && self.url == nil && self.alarms.isEmpty && !self.clearAlarms
     }
 
     func apply(to reminder: EKReminder) throws {
@@ -28,6 +30,10 @@ struct ReminderChanges {
 
         if let notes {
             reminder.notes = notes.isEmpty ? nil : notes
+        }
+
+        if let url {
+            reminder.url = URL(string: url)
         }
 
         if let priority {

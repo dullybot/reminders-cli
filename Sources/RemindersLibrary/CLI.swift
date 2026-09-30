@@ -1,6 +1,12 @@
 import ArgumentParser
 import Foundation
 
+private func validateURL(_ url: String?) throws {
+    if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
+        throw ValidationError("--url must be an absolute URL such as https://example.com")
+    }
+}
+
 struct CompletionOptions: ParsableArguments {
     @Flag(help: "Show completed items only")
     var onlyCompleted = false
@@ -149,10 +155,15 @@ struct Add: AsyncParsableCommand {
             valueName: "date-or-offset"))
     var alarm: [AlarmSpec] = []
 
+    @Option(help: "A URL to attach to the reminder")
+    var url: String?
+
     @OptionGroup
     var repeatOptions: RepeatOptions
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.repeatOptions.frequency != nil && self.dueDate == nil {
             throw ValidationError("--repeat requires --due-date")
         }
@@ -169,6 +180,7 @@ struct Add: AsyncParsableCommand {
             dueDate: self.dueDate,
             priority: self.priority,
             recurrence: self.repeatOptions.recurrence,
+            url: self.url,
             alarms: self.alarm)
         try await Reminders.authorized().addReminder(
             toListNamed: self.listName, changes: changes, outputFormat: format)
@@ -273,6 +285,9 @@ struct Edit: AsyncParsableCommand {
         help: "The new priority of the reminder")
     var priority: Priority?
 
+    @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
+    var url: String?
+
     @OptionGroup
     var repeatOptions: RepeatOptions
 
@@ -295,6 +310,8 @@ struct Edit: AsyncParsableCommand {
     var reminder: [String] = []
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.dueDate != nil && self.clearDueDate {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
@@ -322,6 +339,7 @@ struct Edit: AsyncParsableCommand {
             priority: self.priority,
             recurrence: self.repeatOptions.recurrence,
             clearRecurrence: self.clearRepeat,
+            url: self.url,
             alarms: self.alarm,
             clearAlarms: self.clearAlarms)
     }

@@ -26,3 +26,14 @@ struct CLITests {
         #expect(CLI.configuration.version.isEmpty == false)
     }
 }
+
+struct URLOptionTests {
+    @Test func acceptsURLs() throws {
+        #expect(try Add.parse(["Soon", "x", "--url", "https://example.com/a?b=c"]).url == "https://example.com/a?b=c")
+        #expect(try Edit.parse(["Soon", "0", "--url", ""]).changes.url == "")
+    }
+
+    @Test func rejectsRelativeURLs() {
+        #expect(throws: (any Error).self) { try Add.parse(["Soon", "x", "--url", "not a url"]) }
+    }
+}
