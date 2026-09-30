@@ -1,7 +1,32 @@
 import ArgumentParser
 import Foundation
 
-private struct ShowLists: AsyncParsableCommand {
+struct CompletionOptions: ParsableArguments {
+    @Flag(help: "Show completed items only")
+    var onlyCompleted = false
+
+    @Flag(help: "Include completed items in output")
+    var includeCompleted = false
+
+    var displayOptions: DisplayOptions {
+        if self.onlyCompleted {
+            return .complete
+        } else if self.includeCompleted {
+            return .all
+        }
+
+        return .incomplete
+    }
+
+    func validate() throws {
+        if self.onlyCompleted && self.includeCompleted {
+            throw ValidationError(
+                "Cannot specify both --include-completed and --only-completed")
+        }
+    }
+}
+
+struct ShowLists: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
     @Option(
@@ -14,15 +39,12 @@ private struct ShowLists: AsyncParsableCommand {
     }
 }
 
-private struct ShowAll: AsyncParsableCommand {
+struct ShowAll: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print all reminders")
 
-    @Flag(help: "Show completed items only")
-    var onlyCompleted = false
-
-    @Flag(help: "Include completed items in output")
-    var includeCompleted = false
+    @OptionGroup
+    var completion: CompletionOptions
 
     @Flag(help: "When using --due-date, also include items due before the due date")
     var includeOverdue = false
@@ -37,28 +59,14 @@ private struct ShowAll: AsyncParsableCommand {
         help: "format, either of 'plain' or 'json'")
     var format: OutputFormat = .plain
 
-    func validate() throws {
-        if self.onlyCompleted && self.includeCompleted {
-            throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
-        }
-    }
-
     func run() async throws {
-        var displayOptions = DisplayOptions.incomplete
-        if self.onlyCompleted {
-            displayOptions = .complete
-        } else if self.includeCompleted {
-            displayOptions = .all
-        }
-
         try await Reminders.authorized().showAllReminders(
             dueOn: self.dueDate, includeOverdue: self.includeOverdue,
-            displayOptions: displayOptions, outputFormat: format)
+            displayOptions: completion.displayOptions, outputFormat: format)
     }
 }
 
-private struct Show: AsyncParsableCommand {
+struct Show: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the items on the given list")
 
@@ -67,11 +75,8 @@ private struct Show: AsyncParsableCommand {
         completion: .custom(listNameCompletion))
     var listName: String
 
-    @Flag(help: "Show completed items only")
-    var onlyCompleted = false
-
-    @Flag(help: "Include completed items in output")
-    var includeCompleted = false
+    @OptionGroup
+    var completion: CompletionOptions
 
     @Flag(help: "When using --due-date, also include items due before the due date")
     var includeOverdue = false
@@ -96,28 +101,14 @@ private struct Show: AsyncParsableCommand {
         help: "format, either of 'plain' or 'json'")
     var format: OutputFormat = .plain
 
-    func validate() throws {
-        if self.onlyCompleted && self.includeCompleted {
-            throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
-        }
-    }
-
     func run() async throws {
-        var displayOptions = DisplayOptions.incomplete
-        if self.onlyCompleted {
-            displayOptions = .complete
-        } else if self.includeCompleted {
-            displayOptions = .all
-        }
-
         try await Reminders.authorized().showListItems(
             withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue,
-            displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
+            displayOptions: completion.displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }
 
-private struct Add: AsyncParsableCommand {
+struct Add: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Add a reminder to a list")
 
@@ -162,7 +153,7 @@ private struct Add: AsyncParsableCommand {
     }
 }
 
-private struct Complete: AsyncParsableCommand {
+struct Complete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Complete a reminder")
 
@@ -180,7 +171,7 @@ private struct Complete: AsyncParsableCommand {
     }
 }
 
-private struct Uncomplete: AsyncParsableCommand {
+struct Uncomplete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Uncomplete a reminder")
 
@@ -198,7 +189,7 @@ private struct Uncomplete: AsyncParsableCommand {
     }
 }
 
-private struct Delete: AsyncParsableCommand {
+struct Delete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Delete a reminder")
 
@@ -211,8 +202,12 @@ private struct Delete: AsyncParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
+    @OptionGroup(title: "Index scope (match the flags passed to 'show')")
+    var completion: CompletionOptions
+
     func run() async throws {
-        try await Reminders.authorized().delete(itemAtIndex: self.index, onListNamed: self.listName)
+        try await Reminders.authorized().delete(
+            itemAtIndex: self.index, onListNamed: self.listName, displayOptions: completion.displayOptions)
     }
 }
 
@@ -222,7 +217,7 @@ private struct Delete: AsyncParsableCommand {
     return Reminders.listNamesIfAuthorized().map { $0.replacingOccurrences(of: ":", with: "\\:") }
 }
 
-private struct Edit: AsyncParsableCommand {
+struct Edit: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Edit the text of a reminder")
 
@@ -248,6 +243,9 @@ private struct Edit: AsyncParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Flag(help: "Remove the notes from the reminder")
+    var clearNotes = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -258,7 +256,13 @@ private struct Edit: AsyncParsableCommand {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.notes != nil && self.clearNotes {
+            throw ValidationError("Cannot specify both --notes and --clear-notes")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
+            && !self.clearDueDate
+        {
             throw ValidationError(
                 "Must specify either new reminder content, new notes, or a due date change")
         }
@@ -270,7 +274,7 @@ private struct Edit: AsyncParsableCommand {
             itemAtIndex: self.index,
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
-            newNotes: self.notes,
+            newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate
         )
@@ -278,7 +282,7 @@ private struct Edit: AsyncParsableCommand {
 }
 
 
-private struct NewList: AsyncParsableCommand {
+struct NewList: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Create a new list")
 
@@ -300,6 +304,7 @@ public struct CLI: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "reminders",
         abstract: "Interact with macOS Reminders from the command line",
+        version: "2.6.0",
         subcommands: [
             Add.self,
             Complete.self,

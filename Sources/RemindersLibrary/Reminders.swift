@@ -9,9 +9,24 @@ private extension EKReminder {
 }
 
 private func formattedDueDate(from reminder: EKReminder) -> String? {
-    return reminder.dueDateComponents?.date.map {
-        RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date())
+    return reminder.dueDateComponents?.date.map { relativeDueDate($0) }
+}
+
+/// Describes a due date relative to now, counting calendar days rather than
+/// elapsed 24 hour periods once it isn't today.
+func relativeDueDate(_ date: Date, relativeTo now: Date = Date(), calendar: Calendar = .current,
+    locale: Locale = .current) -> String
+{
+    let formatter = RelativeDateTimeFormatter()
+    formatter.calendar = calendar
+    formatter.locale = locale
+    let days = calendar.dateComponents(
+        [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+    if days == 0 {
+        return formatter.localizedString(for: date, relativeTo: now)
     }
+
+    return formatter.localizedString(from: DateComponents(day: days))
 }
 
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
@@ -161,30 +176,34 @@ public final class Reminders {
     }
 
     func newList(with name: String, source requestedSourceName: String?) {
+        // Accounts such as iCloud can expose several sources with the same title,
+        // only one of which holds reminders, so prefer sources that already do.
         let sources = self.store.sources
-        guard var source = sources.first else {
-            print("No existing list sources were found, please create a list in Reminders.app")
-            exit(1)
-        }
-
-        if let requestedSourceName = requestedSourceName {
-            guard let requestedSource = sources.first(where: { $0.title == requestedSourceName }) else
-            {
+        let reminderSources = sources.filter { !$0.calendars(for: .reminder).isEmpty }
+        let candidates = reminderSources.isEmpty ? sources : reminderSources
+        let source: EKSource
+        if let requestedSourceName {
+            let matches = { (source: EKSource) in
+                source.title == requestedSourceName || source.sourceIdentifier == requestedSourceName
+            }
+            guard let requestedSource = candidates.first(where: matches) ?? sources.first(where: matches) else {
                 print("No source named '\(requestedSourceName)'")
                 exit(1)
             }
 
             source = requestedSource
+        } else if candidates.count == 1, let onlySource = candidates.first {
+            source = onlySource
+        } else if candidates.isEmpty {
+            print("No existing list sources were found, please create a list in Reminders.app")
+            exit(1)
         } else {
-            let uniqueSources = Set(sources.map { $0.title })
-            if uniqueSources.count > 1 {
-                print("Multiple sources were found, please specify one with --source:")
-                for source in uniqueSources {
-                    print("  \(source)")
-                }
-
-                exit(1)
+            print("Multiple sources were found, please specify one with --source:")
+            for source in candidates {
+                print("  \(source.title) (\(source.sourceIdentifier))")
             }
+
+            exit(1)
         }
 
         let newList = EKCalendar(for: .reminder, eventStore: self.store)
@@ -212,7 +231,9 @@ public final class Reminders {
 
         do {
             reminder.title = newText ?? reminder.title
-            reminder.notes = newNotes ?? reminder.notes
+            if let newNotes {
+                reminder.notes = newNotes.isEmpty ? nil : newNotes
+            }
 
             if clearDueDate {
                 reminder.dueDateComponents = nil
@@ -253,16 +274,11 @@ public final class Reminders {
         }
     }
 
-    func delete(itemAtIndex index: String, onListNamed name: String) async {
-        // Numeric indexes are only meaningful against the same display set that
-        // `show` uses by default (incomplete-only), so keep that scope when the
-        // caller passes a plain integer index — otherwise a numeric index would
-        // resolve against a differently-ordered/sized array than the one the
-        // user actually saw. External identifiers are stable regardless of
-        // completion state, so widen the fetch to `.all` in that case, so a
-        // reminder already marked complete can still be found and deleted by
-        // its id instead of failing with "No reminder at index ...".
-        let displayOptions: DisplayOptions = Int(index) == nil ? .all : .incomplete
+    func delete(itemAtIndex index: String, onListNamed name: String, displayOptions: DisplayOptions) async {
+        // Numeric indexes resolve against the same display set `show` printed
+        // them from, so callers pass the same completion flags. External
+        // identifiers are stable regardless of completion state.
+        let displayOptions = Int(index) == nil ? .all : displayOptions
         let reminder = await self.reminder(at: index, onListNamed: name, displayOptions: displayOptions)
 
         do {
@@ -286,7 +302,7 @@ public final class Reminders {
         let reminder = EKReminder(eventStore: self.store)
         reminder.calendar = calendar
         reminder.title = string
-        reminder.notes = notes
+        reminder.notes = notes?.isEmpty == true ? nil : notes
         reminder.dueDateComponents = dueDateComponents
         reminder.priority = Int(priority.value.rawValue)
         if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
