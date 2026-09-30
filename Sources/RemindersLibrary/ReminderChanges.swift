@@ -1,4 +1,3 @@
-import ArgumentParser
 import EventKit
 import Foundation
 
@@ -67,7 +66,7 @@ struct ReminderChanges {
 
         for alarm in self.alarms {
             guard let date = alarm.date(dueDate: reminder.dueDateComponents?.date) else {
-                throw ValidationError("Alarms relative to the due date need a reminder with a due date")
+                throw MissingDueDateError()
             }
 
             reminder.addAlarm(EKAlarm(absoluteDate: date))
@@ -79,4 +78,8 @@ private func removeAlarms(from reminder: EKReminder) {
     for alarm in reminder.alarms ?? [] {
         reminder.removeAlarm(alarm)
     }
+}
+
+struct MissingDueDateError: LocalizedError {
+    var errorDescription: String? { "alarms relative to the due date need a reminder with a due date" }
 }

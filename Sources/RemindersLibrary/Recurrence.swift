@@ -8,8 +8,6 @@ public enum RepeatFrequency: String, ExpressibleByArgument, CaseIterable, Sendab
     case monthly
     case yearly
 
-    public static let commaSeparatedCases = Self.allCases.map { $0.rawValue }.joined(separator: ", ")
-
     var ekFrequency: EKRecurrenceFrequency {
         switch self {
             case .daily: return .daily
@@ -50,7 +48,7 @@ func describe(_ rule: EKRecurrenceRule) -> String {
 struct RepeatOptions: ParsableArguments {
     @Option(
         name: .customLong("repeat"),
-        help: "Repeat the reminder, one of: \(RepeatFrequency.commaSeparatedCases)")
+        help: "Repeat the reminder")
     var frequency: RepeatFrequency?
 
     @Option(help: "Repeat every N periods, e.g. 2 with '--repeat weekly' for every other week")
