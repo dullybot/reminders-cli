@@ -27,7 +27,7 @@ extension EKReminder: @retroactive Encodable {
         try container.encode(self.isCompleted, forKey: .isCompleted)
         try container.encode(self.priority, forKey: .priority)
         try container.encode(self.calendar.title, forKey: .list)
-        try container.encodeIfPresent(self.notes, forKey: .notes)
+        try container.encodeIfPresent(self.notes.flatMap { $0.isEmpty ? nil : $0 }, forKey: .notes)
         
         // url field is nil
         // https://developer.apple.com/forums/thread/128140

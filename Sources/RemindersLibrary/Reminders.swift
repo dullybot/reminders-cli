@@ -47,7 +47,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let alarmString = alarmDates.isEmpty ? "" : " (alarms: \(alarmDates.map { relativeDueDate($0) }.joined(separator: ", ")))"
     let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
-    let notesString = reminder.notes.map { " (\($0))" } ?? ""
+    let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
     let urlString = (reminder.url ?? details?.url).map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
     let flaggedString = details?.flagged == true ? " (flagged)" : ""
