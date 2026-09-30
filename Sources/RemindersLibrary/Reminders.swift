@@ -32,10 +32,11 @@ func relativeDueDate(_ date: Date, relativeTo now: Date = Date(), calendar: Cale
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
+    let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(repeatString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -219,38 +220,11 @@ public final class Reminders {
         }
     }
 
-    func edit(
-        itemAtIndex index: String,
-        onListNamed name: String,
-        newText: String?,
-        newNotes: String?,
-        newDueDateComponents: DateComponents? = nil,
-        clearDueDate: Bool = false
-    ) async {
+    func edit(itemAtIndex index: String, onListNamed name: String, changes: ReminderChanges) async {
         let reminder = await self.reminder(at: index, onListNamed: name, displayOptions: .incomplete)
+        changes.apply(to: reminder)
 
         do {
-            reminder.title = newText ?? reminder.title
-            if let newNotes {
-                reminder.notes = newNotes.isEmpty ? nil : newNotes
-            }
-
-            if clearDueDate {
-                reminder.dueDateComponents = nil
-                for alarm in reminder.alarms ?? [] {
-                    reminder.removeAlarm(alarm)
-                }
-            } else if let newDueDateComponents {
-                reminder.dueDateComponents = newDueDateComponents
-                for alarm in reminder.alarms ?? [] {
-                    reminder.removeAlarm(alarm)
-                }
-
-                if let dueDate = newDueDateComponents.date, newDueDateComponents.hour != nil {
-                    reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
-                }
-            }
-
             try self.store.save(reminder, commit: true)
             print("Updated reminder '\(reminder.title ?? "")'")
         } catch let error {
@@ -290,24 +264,11 @@ public final class Reminders {
         }
     }
 
-    func addReminder(
-        string: String,
-        notes: String?,
-        toListNamed name: String,
-        dueDateComponents: DateComponents?,
-        priority: Priority,
-        outputFormat: OutputFormat)
-    {
+    func addReminder(toListNamed name: String, changes: ReminderChanges, outputFormat: OutputFormat) {
         let calendar = self.calendar(withName: name)
         let reminder = EKReminder(eventStore: self.store)
         reminder.calendar = calendar
-        reminder.title = string
-        reminder.notes = notes?.isEmpty == true ? nil : notes
-        reminder.dueDateComponents = dueDateComponents
-        reminder.priority = Int(priority.value.rawValue)
-        if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
-            reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
-        }
+        changes.apply(to: reminder)
 
         do {
             try self.store.save(reminder, commit: true)

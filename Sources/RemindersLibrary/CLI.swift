@@ -142,14 +142,24 @@ struct Add: AsyncParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    func validate() throws {
+        if self.repeatOptions.frequency != nil && self.dueDate == nil {
+            throw ValidationError("--repeat requires --due-date")
+        }
+    }
+
     func run() async throws {
-        try await Reminders.authorized().addReminder(
-            string: self.reminder.joined(separator: " "),
+        let changes = ReminderChanges(
+            title: self.reminder.joined(separator: " "),
             notes: self.notes,
-            toListNamed: self.listName,
-            dueDateComponents: self.dueDate,
-            priority: priority,
-            outputFormat: format)
+            dueDate: self.dueDate,
+            priority: self.priority,
+            recurrence: self.repeatOptions.recurrence)
+        try await Reminders.authorized().addReminder(
+            toListNamed: self.listName, changes: changes, outputFormat: format)
     }
 }
 
@@ -246,6 +256,17 @@ struct Edit: AsyncParsableCommand {
     @Flag(help: "Remove the notes from the reminder")
     var clearNotes = false
 
+    @Option(
+        name: .shortAndLong,
+        help: "The new priority of the reminder")
+    var priority: Priority?
+
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Flag(help: "Stop the reminder repeating")
+    var clearRepeat = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -260,24 +281,30 @@ struct Edit: AsyncParsableCommand {
             throw ValidationError("Cannot specify both --notes and --clear-notes")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
-            && !self.clearDueDate
-        {
-            throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+        if self.repeatOptions.frequency != nil && self.clearRepeat {
+            throw ValidationError("Cannot specify both --repeat and --clear-repeat")
+        }
+
+        if self.changes.isEmpty {
+            throw ValidationError("Must specify either new reminder content or a field to change")
         }
     }
 
-    func run() async throws {
+    var changes: ReminderChanges {
         let newText = self.reminder.joined(separator: " ")
+        return ReminderChanges(
+            title: newText.isEmpty ? nil : newText,
+            notes: self.clearNotes ? "" : self.notes,
+            dueDate: self.dueDate,
+            clearDueDate: self.clearDueDate,
+            priority: self.priority,
+            recurrence: self.repeatOptions.recurrence,
+            clearRecurrence: self.clearRepeat)
+    }
+
+    func run() async throws {
         try await Reminders.authorized().edit(
-            itemAtIndex: self.index,
-            onListNamed: self.listName,
-            newText: newText.isEmpty ? nil : newText,
-            newNotes: self.clearNotes ? "" : self.notes,
-            newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
-        )
+            itemAtIndex: self.index, onListNamed: self.listName, changes: self.changes)
     }
 }
 
