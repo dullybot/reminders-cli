@@ -1,3 +1,0 @@
-import RemindersLibrary
-
-CLI.main()
