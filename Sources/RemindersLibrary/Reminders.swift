@@ -42,11 +42,12 @@ private extension EKReminder {
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
+    let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
     let urlString = reminder.url.map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(repeatString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -271,7 +272,9 @@ public final class Reminders {
         newDueDateComponents: DateComponents? = nil,
         clearDueDate: Bool = false,
         newPriority: Priority? = nil,
-        newURL: String? = nil)
+        newURL: String? = nil,
+        newRecurrence: Recurrence? = nil,
+        clearRecurrence: Bool = false)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -308,6 +311,16 @@ public final class Reminders {
                     if let dueDate = newDueDateComponents.date, newDueDateComponents.hour != nil {
                         reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
                     }
+                }
+
+                if clearRecurrence || newRecurrence != nil {
+                    for rule in reminder.recurrenceRules ?? [] {
+                        reminder.removeRecurrenceRule(rule)
+                    }
+                }
+
+                if let newRecurrence {
+                    reminder.addRecurrenceRule(newRecurrence.rule)
                 }
 
                 try Store.save(reminder, commit: true)
@@ -386,6 +399,7 @@ public final class Reminders {
         toListNamed name: String,
         dueDateComponents: DateComponents?,
         priority: Priority,
+        recurrence: Recurrence?,
         outputFormat: OutputFormat)
     {
         let calendar = self.calendar(withName: name)
@@ -398,6 +412,10 @@ public final class Reminders {
         reminder.priority = Int(priority.value.rawValue)
         if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
             reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
+        }
+
+        if let recurrence {
+            reminder.addRecurrenceRule(recurrence.rule)
         }
 
         do {

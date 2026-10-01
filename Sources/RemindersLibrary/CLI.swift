@@ -180,8 +180,14 @@ private struct Add: ParsableCommand {
     @Option(help: "A URL to attach to the reminder")
     var url: String?
 
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
     func validate() throws {
         try validateURL(self.url)
+        if self.repeatOptions.frequency != nil && self.dueDate == nil {
+            throw ValidationError("--repeat requires --due-date")
+        }
     }
 
     func run() {
@@ -193,6 +199,7 @@ private struct Add: ParsableCommand {
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            recurrence: self.repeatOptions.recurrence,
             outputFormat: format)
     }
 }
@@ -317,6 +324,12 @@ private struct Edit: ParsableCommand {
     @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
     var url: String?
 
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Flag(help: "Stop the reminder repeating")
+    var clearRepeat = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -333,11 +346,16 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Cannot specify both --notes and --clear-notes")
         }
 
+        if self.repeatOptions.frequency != nil && self.clearRepeat {
+            throw ValidationError("Cannot specify both --repeat and --clear-repeat")
+        }
+
         if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
             && !self.clearDueDate && self.priority == nil && self.url == nil
+            && self.repeatOptions.frequency == nil && !self.clearRepeat
         {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, a due date change, a priority, or a URL")
+                "Must specify either new reminder content, new notes, a due date change, a priority, a URL, or a repeat change")
         }
     }
 
@@ -352,7 +370,9 @@ private struct Edit: ParsableCommand {
             newDueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate,
             newPriority: self.priority,
-            newURL: self.url
+            newURL: self.url,
+            newRecurrence: self.repeatOptions.recurrence,
+            clearRecurrence: self.clearRepeat
         )
     }
 }

@@ -96,6 +96,14 @@ $ reminders show Soon
 URLs are stored through EventKit's `url` field, which Reminders.app may not display. Use
 `edit --url ""` to remove one.
 
+#### Repeat a reminder
+
+```
+$ reminders add Soon Pay rent --due-date "2026-10-01 9am" --repeat monthly
+$ reminders add Soon Standup --due-date "tomorrow 10am" --repeat weekly --repeat-interval 2 --repeat-end 2026-12-31
+$ reminders edit Soon 0 --clear-repeat
+```
+
 #### Show reminders due on or by a date
 
 ```
