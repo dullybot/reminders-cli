@@ -38,7 +38,9 @@ private extension EKReminder {
     }
 }
 
-private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
+private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil,
+    details: ReminderDetails? = nil, parentTitle: String? = nil) -> String
+{
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
@@ -46,9 +48,13 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let alarmString = alarmDates.isEmpty ? "" : " (alarms: \(alarmDates.map { relativeDueDate($0) }.joined(separator: ", ")))"
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
-    let urlString = reminder.url.map { " <\($0.absoluteString)>" } ?? ""
+    let urlString = (reminder.url ?? details?.url).map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(repeatString)\(alarmString)\(priorityString)"
+    let flaggedString = details?.flagged == true ? " (flagged)" : ""
+    let tagsString = details?.tags.map { " #\($0)" }.joined() ?? ""
+    let assigneeString = details?.assignee.map { " (assigned to \($0))" } ?? ""
+    let parentString = parentTitle.map { " (subtask of '\($0)')" } ?? ""
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(tagsString)\(notesString)\(urlString)\(dateString)\(repeatString)\(alarmString)\(priorityString)\(flaggedString)\(assigneeString)\(parentString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -100,6 +106,9 @@ public struct AccessError: LocalizedError {
 public final class Reminders {
     private let store = EKEventStore()
     private lazy var calendars = self.store.calendars(for: .reminder).filter { $0.allowsContentModifications }
+    /// Optional: output simply omits Reminders.app-only fields without ReminderKit.
+    private lazy var reminderKit = Result<ReminderExtras, Error> { try ReminderKitBridge() }
+    private var extras: ReminderExtras? { try? self.reminderKit.get() }
 
     private init() {}
 
@@ -175,12 +184,13 @@ public final class Reminders {
             }
         }
 
+        let printer = ReminderPrinter(reminders: matchingReminders.map { $0.0 }, extras: self.extras)
         switch outputFormat {
         case .json:
-            print(encodeToJson(data: matchingReminders.map { $0.0 }))
+            print(encodeToJson(data: printer.json(matchingReminders.map { $0.0 })))
         case .plain:
             for (reminder, i, listName) in matchingReminders {
-                print(format(reminder, at: i, listName: listName))
+                print(printer.plain(reminder, at: i, listName: listName))
             }
         }
     }
@@ -217,12 +227,13 @@ public final class Reminders {
             }
         }
 
+        let printer = ReminderPrinter(reminders: reminders, extras: self.extras)
         switch outputFormat {
         case .json:
-            print(encodeToJson(data: matchingReminders.map { $0.0 }))
+            print(encodeToJson(data: printer.json(matchingReminders.map { $0.0 })))
         case .plain:
             for (reminder, i) in matchingReminders {
-                print(format(reminder, at: i))
+                print(printer.plain(reminder, at: i))
             }
         }
     }
@@ -283,17 +294,19 @@ public final class Reminders {
         newRecurrence: Recurrence? = nil,
         clearRecurrence: Bool = false,
         newAlarms: [AlarmSpec] = [],
-        clearAlarms: Bool = false
+        clearAlarms: Bool = false,
+        reminderKitChanges: ReminderKitChanges = ReminderKitChanges(),
+        parentIndex: String? = nil
     ) async {
         let calendar = self.calendar(withName: name)
 
         let reminders = await self.reminders(on: [calendar], displayOptions: .incomplete)
-        guard let reminder = self.getReminder(from: reminders, at: index) else {
-            print("No reminder at index \(index) on \(name)")
-            exit(1)
-        }
+        let reminder = self.reminder(from: reminders, at: index, onListNamed: name)
+        var reminderKitChanges = reminderKitChanges
+        reminderKitChanges.parent = parentIndex.map { self.reminder(from: reminders, at: $0, onListNamed: name) }
 
         do {
+            let reminderKitChanges = try self.prepare(reminderKitChanges, on: reminder.calendar)
             reminder.title = newText ?? reminder.title
             if let newNotes {
                 reminder.notes = newNotes.isEmpty ? nil : newNotes
@@ -345,9 +358,10 @@ public final class Reminders {
             addAlarms(newAlarms, to: reminder)
 
             try self.store.save(reminder, commit: true)
+            try self.apply(reminderKitChanges, to: reminder)
             print("Updated reminder '\(reminder.title ?? "")'")
         } catch let error {
-            print("Failed to update reminder with error: \(error)")
+            print("Failed to update reminder with error: \(error.localizedDescription)")
             exit(1)
         }
     }
@@ -405,9 +419,17 @@ public final class Reminders {
         priority: Priority,
         recurrence: Recurrence?,
         alarms: [AlarmSpec],
-        outputFormat: OutputFormat)
-    {
+        reminderKitChanges: ReminderKitChanges = ReminderKitChanges(),
+        parentIndex: String? = nil,
+        outputFormat: OutputFormat
+    ) async {
         let calendar = self.calendar(withName: name)
+        var reminderKitChanges = reminderKitChanges
+        if let parentIndex {
+            let reminders = await self.reminders(on: [calendar], displayOptions: .incomplete)
+            reminderKitChanges.parent = self.reminder(from: reminders, at: parentIndex, onListNamed: name)
+        }
+
         let reminder = EKReminder(eventStore: self.store)
         reminder.calendar = calendar
         reminder.title = string
@@ -424,16 +446,18 @@ public final class Reminders {
         }
 
         do {
+            let reminderKitChanges = try self.prepare(reminderKitChanges, on: calendar)
             addAlarms(alarms, to: reminder)
             try self.store.save(reminder, commit: true)
+            try self.apply(reminderKitChanges, to: reminder)
             switch (outputFormat) {
             case .json:
-                print(encodeToJson(data: reminder))
+                print(encodeToJson(data: ReminderPrinter(reminders: [reminder], extras: self.extras).json([reminder])[0]))
             default:
                 print("Added '\(reminder.title ?? "")' to '\(calendar.title)'")
             }
         } catch let error {
-            print("Failed to save reminder with error: \(error)")
+            print("Failed to save reminder with error: \(error.localizedDescription)")
             exit(1)
         }
     }
@@ -468,6 +492,32 @@ public final class Reminders {
         }
 
         return fetched.value
+    }
+
+    /// Checks Reminders.app-only changes before anything is saved, so an unsupported
+    /// change fails without leaving a half-applied edit. A URL alone is also stored
+    /// through EventKit, so its attachment is skipped when ReminderKit can't add it.
+    private func prepare(_ changes: ReminderKitChanges, on calendar: EKCalendar) throws -> ReminderKitChanges {
+        if !changes.needsReminderKit {
+            return changes.isEmpty ? changes : (try? self.extras?.supported(changes, on: calendar)) ?? ReminderKitChanges()
+        }
+
+        return try self.reminderKit.get().supported(changes, on: calendar)
+    }
+
+    private func apply(_ changes: ReminderKitChanges, to reminder: EKReminder) throws {
+        if !changes.isEmpty {
+            try self.extras?.apply(changes, to: reminder)
+        }
+    }
+
+    private func reminder(from reminders: [EKReminder], at index: String, onListNamed name: String) -> EKReminder {
+        guard let reminder = self.getReminder(from: reminders, at: index) else {
+            print("No reminder at index \(index) on \(name)")
+            exit(1)
+        }
+
+        return reminder
     }
 
     private func calendar(withName name: String) -> EKCalendar {
@@ -509,6 +559,59 @@ private struct UncheckedReminders: @unchecked Sendable {
 private func addAlarms(_ alarms: [AlarmSpec], to reminder: EKReminder) {
     for date in alarms.compactMap({ $0.date(dueDate: reminder.dueDateComponents?.date) }) {
         reminder.addAlarm(EKAlarm(absoluteDate: date))
+    }
+}
+
+/// Formats reminders together with their Reminders.app-only fields.
+private struct ReminderPrinter {
+    let details: [String: ReminderDetails]
+    let reminders: [String: EKReminder]
+
+    init(reminders: [EKReminder], extras: ReminderExtras?) {
+        self.details = extras?.details(for: reminders) ?? [:]
+        self.reminders = Dictionary(reminders.map { (reminderKitKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func plain(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
+        let details = self.details[reminderKitKey(reminder)]
+        let parentTitle = details?.parentIdentifier.map { self.reminders[$0]?.title ?? $0 }
+        return format(reminder, at: index, listName: listName, details: details, parentTitle: parentTitle)
+    }
+
+    /// Parents are identified by `externalId`, like everywhere else in the output.
+    func json(_ reminders: [EKReminder]) -> [ReminderJSON] {
+        reminders.map { reminder in
+            var details = self.details[reminderKitKey(reminder)]
+            if let parent = details?.parentIdentifier {
+                details?.parentIdentifier = self.reminders[parent]?.calendarItemExternalIdentifier ?? parent
+            }
+            return ReminderJSON(reminder: reminder, details: details)
+        }
+    }
+}
+
+private struct ReminderJSON: Encodable {
+    private enum CodingKeys: String, CodingKey {
+        case flagged, tags, parentId, assignee, url
+    }
+
+    let reminder: EKReminder
+    let details: ReminderDetails?
+
+    func encode(to encoder: Encoder) throws {
+        try self.reminder.encode(to: encoder)
+        guard let details else {
+            return
+        }
+
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(details.flagged, forKey: .flagged)
+        try container.encode(details.tags, forKey: .tags)
+        try container.encodeIfPresent(details.parentIdentifier, forKey: .parentId)
+        try container.encodeIfPresent(details.assignee, forKey: .assignee)
+        if self.reminder.url == nil {
+            try container.encodeIfPresent(details.url, forKey: .url)
+        }
     }
 }
 

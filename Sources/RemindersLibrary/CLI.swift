@@ -7,6 +7,10 @@ private func validateURL(_ url: String?) throws {
     }
 }
 
+private func normalizedTags(_ tags: [String]) -> [String] {
+    tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }.filter { !$0.isEmpty }
+}
+
 private struct ShowLists: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
@@ -123,7 +127,7 @@ private struct Show: AsyncParsableCommand {
     }
 }
 
-private struct Add: AsyncParsableCommand {
+struct Add: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Add a reminder to a list")
 
@@ -160,6 +164,18 @@ private struct Add: AsyncParsableCommand {
     @Option(help: "A URL to attach to the reminder")
     var url: String?
 
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
     @OptionGroup
     var repeatOptions: RepeatOptions
 
@@ -191,6 +207,12 @@ private struct Add: AsyncParsableCommand {
             priority: priority,
             recurrence: self.repeatOptions.recurrence,
             alarms: self.alarm,
+            reminderKitChanges: ReminderKitChanges(
+                flagged: self.flag ? true : nil,
+                addTags: normalizedTags(self.tag),
+                assignee: self.assign,
+                url: self.url),
+            parentIndex: self.parent,
             outputFormat: format)
     }
 }
@@ -275,7 +297,7 @@ private struct Delete: AsyncParsableCommand {
     return Reminders.listNamesIfAuthorized().map { $0.replacingOccurrences(of: ":", with: "\\:") }
 }
 
-private struct Edit: AsyncParsableCommand {
+struct Edit: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Edit the text of a reminder")
 
@@ -328,6 +350,33 @@ private struct Edit: AsyncParsableCommand {
     @Flag(help: "Remove all alarms, applied before any --alarm")
     var clearAlarms = false
 
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Flag(help: "Unflag the reminder")
+    var unflag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Remove a tag (repeatable)")
+    var removeTag: [String] = []
+
+    @Flag(help: "Remove all tags, applied before any --tag")
+    var clearTags = false
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Flag(help: "Make this subtask a top level reminder")
+    var unnest = false
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
+    @Flag(help: "Remove the assignee")
+    var unassign = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -352,10 +401,30 @@ private struct Edit: AsyncParsableCommand {
             && !self.clearDueDate && self.priority == nil && self.url == nil
             && self.repeatOptions.frequency == nil && !self.clearRepeat
             && self.alarm.isEmpty && !self.clearAlarms
+            && self.reminderKitChanges.isEmpty && self.parent == nil
         {
-            throw ValidationError(
-                "Must specify either new reminder content, new notes, a due date change, a priority, a URL, a repeat change, or an alarm change")
+            throw ValidationError("Must specify either new reminder content or a field to change")
         }
+
+        for (first, second, names) in [
+            (self.flag, self.unflag, "--flag and --unflag"),
+            (self.parent != nil, self.unnest, "--parent and --unnest"),
+            (self.assign != nil, self.unassign, "--assign and --unassign"),
+        ] where first && second {
+            throw ValidationError("Cannot specify both \(names)")
+        }
+    }
+
+    var reminderKitChanges: ReminderKitChanges {
+        ReminderKitChanges(
+            flagged: self.flag ? true : self.unflag ? false : nil,
+            addTags: normalizedTags(self.tag),
+            removeTags: normalizedTags(self.removeTag),
+            clearTags: self.clearTags,
+            unnest: self.unnest,
+            assignee: self.assign,
+            unassign: self.unassign,
+            url: self.url)
     }
 
     func run() async throws {
@@ -372,7 +441,9 @@ private struct Edit: AsyncParsableCommand {
             newRecurrence: self.repeatOptions.recurrence,
             clearRecurrence: self.clearRepeat,
             newAlarms: self.alarm,
-            clearAlarms: self.clearAlarms
+            clearAlarms: self.clearAlarms,
+            reminderKitChanges: self.reminderKitChanges,
+            parentIndex: self.parent
         )
     }
 }
