@@ -153,6 +153,15 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    func validate() throws {
+        if self.repeatOptions.frequency != nil && self.dueDate == nil {
+            throw ValidationError("--repeat requires --due-date")
+        }
+    }
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
@@ -160,6 +169,7 @@ private struct Add: ParsableCommand {
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            recurrence: self.repeatOptions.recurrence,
             outputFormat: format)
     }
 }
@@ -250,6 +260,12 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Flag(help: "Stop the reminder repeating")
+    var clearRepeat = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -260,9 +276,15 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.repeatOptions.frequency != nil && self.clearRepeat {
+            throw ValidationError("Cannot specify both --repeat and --clear-repeat")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate
+            && self.repeatOptions.frequency == nil && !self.clearRepeat
+        {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+                "Must specify either new reminder content, new notes, a due date change, or a repeat change")
         }
     }
 
@@ -274,7 +296,9 @@ private struct Edit: ParsableCommand {
             newText: newText.isEmpty ? nil : newText,
             newNotes: self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newRecurrence: self.repeatOptions.recurrence,
+            clearRecurrence: self.clearRepeat
         )
     }
 }
