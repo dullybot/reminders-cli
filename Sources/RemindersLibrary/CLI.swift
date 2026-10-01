@@ -290,7 +290,7 @@ private struct NewList: ParsableCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "The name of the source of the list, if all your lists use the same source it will default to that")
+        help: "The name or identifier of the source of the list, if all your lists use the same source it will default to that")
     var source: String?
 
     func run() {
