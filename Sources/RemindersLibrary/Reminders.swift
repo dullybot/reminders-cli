@@ -86,6 +86,8 @@ public enum Priority: String, ExpressibleByArgument {
 }
 
 public final class Reminders {
+    private lazy var calendars = Store.calendars(for: .reminder).filter { $0.allowsContentModifications }
+
     public static func requestAccess() -> (Bool, Error?) {
         let semaphore = DispatchSemaphore(value: 0)
         var grantedAccess = false
@@ -109,7 +111,7 @@ public final class Reminders {
     }
 
     func getListNames() -> [String] {
-        return self.getCalendars().map { $0.title }
+        return self.calendars.map { $0.title }
     }
 
     func showLists(outputFormat: OutputFormat) {
@@ -129,7 +131,11 @@ public final class Reminders {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
 
-        self.reminders(on: self.getCalendars(), displayOptions: displayOptions) { reminders in
+        // Indexes printed here aren't usable with other commands, so the fetch
+        // can be narrowed to the requested day in EventKit itself.
+        self.reminders(
+            on: self.calendars, displayOptions: displayOptions, dueOn: dueDate, includeOverdue: includeOverdue
+        ) { reminders in
             var matchingReminders = [(EKReminder, Int, String)]()
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
@@ -213,39 +219,42 @@ public final class Reminders {
     }
 
     func newList(with name: String, source requestedSourceName: String?) {
-        let store = EKEventStore()
-        let sources = store.sources
-        guard var source = sources.first else {
-            print("No existing list sources were found, please create a list in Reminders.app")
-            exit(1)
-        }
-
-        if let requestedSourceName = requestedSourceName {
-            guard let requestedSource = sources.first(where: { $0.title == requestedSourceName }) else
-            {
+        // Accounts such as iCloud can expose several sources with the same title,
+        // only one of which holds reminders, so prefer sources that already do.
+        let sources = Store.sources
+        let reminderSources = sources.filter { !$0.calendars(for: .reminder).isEmpty }
+        let candidates = reminderSources.isEmpty ? sources : reminderSources
+        let source: EKSource
+        if let requestedSourceName {
+            let matches = { (source: EKSource) in
+                source.title == requestedSourceName || source.sourceIdentifier == requestedSourceName
+            }
+            guard let requestedSource = candidates.first(where: matches) ?? sources.first(where: matches) else {
                 print("No source named '\(requestedSourceName)'")
                 exit(1)
             }
 
             source = requestedSource
+        } else if candidates.count == 1, let onlySource = candidates.first {
+            source = onlySource
+        } else if candidates.isEmpty {
+            print("No existing list sources were found, please create a list in Reminders.app")
+            exit(1)
         } else {
-            let uniqueSources = Set(sources.map { $0.title })
-            if uniqueSources.count > 1 {
-                print("Multiple sources were found, please specify one with --source:")
-                for source in uniqueSources {
-                    print("  \(source)")
-                }
-
-                exit(1)
+            print("Multiple sources were found, please specify one with --source:")
+            for source in candidates {
+                print("  \(source.title) (\(source.sourceIdentifier))")
             }
+
+            exit(1)
         }
 
-        let newList = EKCalendar(for: .reminder, eventStore: store)
+        let newList = EKCalendar(for: .reminder, eventStore: Store)
         newList.title = name
         newList.source = source
 
         do {
-            try store.saveCalendar(newList, commit: true)
+            try Store.saveCalendar(newList, commit: true)
             print("Created new list '\(newList.title)'!")
         } catch let error {
             print("Failed create new list with error: \(error)")
@@ -330,19 +339,14 @@ public final class Reminders {
         semaphore.wait()
     }
 
-    func delete(itemAtIndex index: String, onListNamed name: String) {
+    func delete(itemAtIndex index: String, onListNamed name: String, displayOptions: DisplayOptions) {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
 
-        // Numeric indexes are only meaningful against the same display set that
-        // `show` uses by default (incomplete-only), so keep that scope when the
-        // caller passes a plain integer index — otherwise a numeric index would
-        // resolve against a differently-ordered/sized array than the one the
-        // user actually saw. External identifiers are stable regardless of
-        // completion state, so widen the fetch to `.all` in that case, so a
-        // reminder already marked complete can still be found and deleted by
-        // its id instead of failing with "No reminder at index ...".
-        let displayOptions: DisplayOptions = Int(index) == nil ? .all : .incomplete
+        // Numeric indexes resolve against the same display set `show` printed
+        // them from, so callers pass the same completion flags. External
+        // identifiers are stable regardless of completion state.
+        let displayOptions = Int(index) == nil ? .all : displayOptions
 
         self.reminders(on: [calendar], displayOptions: displayOptions) { reminders in
             guard let reminder = self.getReminder(from: reminders, at: index) else {
@@ -399,42 +403,40 @@ public final class Reminders {
 
     // MARK: - Private functions
 
+    /// Fetches with EventKit's completion-state (and optionally due-date) predicates
+    /// instead of loading every reminder and filtering in memory.
     private func reminders(
         on calendars: [EKCalendar],
         displayOptions: DisplayOptions,
+        dueOn dueDate: DateComponents? = nil,
+        includeOverdue: Bool = false,
         completion: @escaping (_ reminders: [EKReminder]) -> Void)
     {
-        let predicate = Store.predicateForReminders(in: calendars)
+        let predicate: NSPredicate
+        switch displayOptions {
+        case .all:
+            predicate = Store.predicateForReminders(in: calendars)
+        case .complete:
+            predicate = Store.predicateForCompletedReminders(
+                withCompletionDateStarting: nil, ending: nil, calendars: calendars)
+        case .incomplete:
+            let range = dueDate?.date.map { dueDayRange(for: $0, includeOverdue: includeOverdue) }
+            predicate = Store.predicateForIncompleteReminders(
+                withDueDateStarting: range?.start, ending: range?.end, calendars: calendars)
+        }
+
         Store.fetchReminders(matching: predicate) { reminders in
-            let reminders = reminders?
-                .filter { self.shouldDisplay(reminder: $0, displayOptions: displayOptions) }
             completion(reminders ?? [])
         }
     }
 
-    private func shouldDisplay(reminder: EKReminder, displayOptions: DisplayOptions) -> Bool {
-        switch displayOptions {
-        case .all:
-            return true
-        case .incomplete:
-            return !reminder.isCompleted
-        case .complete:
-            return reminder.isCompleted
-        }
-    }
-
     private func calendar(withName name: String) -> EKCalendar {
-        if let calendar = self.getCalendars().find(where: { $0.title.lowercased() == name.lowercased() }) {
+        if let calendar = self.calendars.find(where: { $0.title.lowercased() == name.lowercased() }) {
             return calendar
         } else {
             print("No reminders list matching \(name)")
             exit(1)
         }
-    }
-
-    private func getCalendars() -> [EKCalendar] {
-        return Store.calendars(for: .reminder)
-                    .filter { $0.allowsContentModifications }
     }
 
     private func getReminder(from reminders: [EKReminder], at index: String) -> EKReminder? {
@@ -446,6 +448,16 @@ public final class Reminders {
         }
     }
 
+}
+
+/// The day containing `date`, or everything up to the end of that day when overdue
+/// items are included.
+func dueDayRange(for date: Date, includeOverdue: Bool, calendar: Calendar = .current)
+    -> (start: Date?, end: Date?)
+{
+    // EventKit's start bound is exclusive, which would drop all-day reminders due at midnight.
+    let start = calendar.startOfDay(for: date)
+    return (includeOverdue ? nil : start.addingTimeInterval(-1), calendar.date(byAdding: .day, value: 1, to: start))
 }
 
 private func encodeToJson(data: Encodable) -> String {

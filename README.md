@@ -63,6 +63,16 @@ $ reminders show Soon
 0 Ship reminders-cli
 ```
 
+Pass the same `--only-completed` or `--include-completed` flag you used with
+`show` so the index matches what it printed:
+
+```
+$ reminders show Soon --only-completed
+0 Write README
+$ reminders delete Soon 0 --only-completed
+Deleted 'Write README'
+```
+
 #### Add a reminder to a list
 
 ```

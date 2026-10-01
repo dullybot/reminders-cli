@@ -3,6 +3,21 @@ import Foundation
 
 private let reminders = Reminders()
 
+/// Requests access only once a command runs, so `--help` and argument errors
+/// don't trigger the Reminders permission prompt.
+private func requireAccess() {
+    switch Reminders.requestAccess() {
+    case (true, _):
+        return
+    case (false, let error):
+        print("error: you need to grant reminders access")
+        if let error {
+            print("error: \(error.localizedDescription)")
+        }
+        exit(1)
+    }
+}
+
 private struct ShowLists: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
@@ -12,6 +27,7 @@ private struct ShowLists: ParsableCommand {
     var format: OutputFormat = .plain
 
     func run() {
+        requireAccess()
         reminders.showLists(outputFormat: format)
     }
 }
@@ -47,6 +63,7 @@ private struct ShowAll: ParsableCommand {
     }
 
     func run() {
+        requireAccess()
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -106,6 +123,7 @@ private struct Show: ParsableCommand {
     }
 
     func run() {
+        requireAccess()
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -154,6 +172,7 @@ private struct Add: ParsableCommand {
     var notes: String?
 
     func run() {
+        requireAccess()
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
@@ -178,6 +197,7 @@ private struct Complete: ParsableCommand {
     var index: String
 
     func run() {
+        requireAccess()
         reminders.setComplete(true, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
@@ -196,6 +216,7 @@ private struct Uncomplete: ParsableCommand {
     var index: String
 
     func run() {
+        requireAccess()
         reminders.setComplete(false, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
@@ -213,8 +234,29 @@ private struct Delete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
+    @Flag(help: "Index into completed items only, matching 'show --only-completed'")
+    var onlyCompleted = false
+
+    @Flag(help: "Index into all items, matching 'show --include-completed'")
+    var includeCompleted = false
+
+    func validate() throws {
+        if self.onlyCompleted && self.includeCompleted {
+            throw ValidationError(
+                "Cannot specify both --include-completed and --only-completed")
+        }
+    }
+
     func run() {
-        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName)
+        requireAccess()
+        var displayOptions = DisplayOptions.incomplete
+        if self.onlyCompleted {
+            displayOptions = .complete
+        } else if self.includeCompleted {
+            displayOptions = .all
+        }
+
+        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName, displayOptions: displayOptions)
     }
 }
 
@@ -267,6 +309,7 @@ private struct Edit: ParsableCommand {
     }
 
     func run() {
+        requireAccess()
         let newText = self.reminder.joined(separator: " ")
         reminders.edit(
             itemAtIndex: self.index,
@@ -290,10 +333,11 @@ private struct NewList: ParsableCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "The name of the source of the list, if all your lists use the same source it will default to that")
+        help: "The name or identifier of the source of the list, if all your lists use the same source it will default to that")
     var source: String?
 
     func run() {
+        requireAccess()
         reminders.newList(with: self.listName, source: self.source)
     }
 }
