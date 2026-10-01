@@ -250,6 +250,9 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Flag(help: "Remove the notes from the reminder")
+    var clearNotes = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -260,7 +263,13 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.notes != nil && self.clearNotes {
+            throw ValidationError("Cannot specify both --notes and --clear-notes")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
+            && !self.clearDueDate
+        {
             throw ValidationError(
                 "Must specify either new reminder content, new notes, or a due date change")
         }
@@ -272,7 +281,7 @@ private struct Edit: ParsableCommand {
             itemAtIndex: self.index,
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
-            newNotes: self.notes,
+            newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate
         )
