@@ -44,8 +44,9 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
+    let urlString = reminder.url.map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -269,7 +270,8 @@ public final class Reminders {
         newNotes: String?,
         newDueDateComponents: DateComponents? = nil,
         clearDueDate: Bool = false,
-        newPriority: Priority? = nil)
+        newPriority: Priority? = nil,
+        newURL: String? = nil)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -287,6 +289,9 @@ public final class Reminders {
                 }
                 if let newPriority {
                     reminder.priority = Int(newPriority.value.rawValue)
+                }
+                if let newURL {
+                    reminder.url = URL(string: newURL)
                 }
 
                 if clearDueDate {
@@ -377,6 +382,7 @@ public final class Reminders {
     func addReminder(
         string: String,
         notes: String?,
+        url: String?,
         toListNamed name: String,
         dueDateComponents: DateComponents?,
         priority: Priority,
@@ -387,6 +393,7 @@ public final class Reminders {
         reminder.calendar = calendar
         reminder.title = string
         reminder.notes = notes?.isEmpty == true ? nil : notes
+        reminder.url = url.flatMap(URL.init(string:))
         reminder.dueDateComponents = dueDateComponents
         reminder.priority = Int(priority.value.rawValue)
         if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {

@@ -18,6 +18,12 @@ private func requireAccess() {
     }
 }
 
+private func validateURL(_ url: String?) throws {
+    if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
+        throw ValidationError("--url must be an absolute URL such as https://example.com")
+    }
+}
+
 private struct ShowLists: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
@@ -171,11 +177,19 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(help: "A URL to attach to the reminder")
+    var url: String?
+
+    func validate() throws {
+        try validateURL(self.url)
+    }
+
     func run() {
         requireAccess()
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
+            url: self.url,
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
@@ -300,12 +314,17 @@ private struct Edit: ParsableCommand {
         help: "The new priority of the reminder")
     var priority: Priority?
 
+    @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
+    var url: String?
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
     var reminder: [String] = []
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.dueDate != nil && self.clearDueDate {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
@@ -315,10 +334,10 @@ private struct Edit: ParsableCommand {
         }
 
         if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
-            && !self.clearDueDate && self.priority == nil
+            && !self.clearDueDate && self.priority == nil && self.url == nil
         {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, a due date change, or a priority")
+                "Must specify either new reminder content, new notes, a due date change, a priority, or a URL")
         }
     }
 
@@ -332,7 +351,8 @@ private struct Edit: ParsableCommand {
             newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate,
-            newPriority: self.priority
+            newPriority: self.priority,
+            newURL: self.url
         )
     }
 }
