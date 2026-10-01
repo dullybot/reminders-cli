@@ -3,6 +3,12 @@ import Foundation
 
 private let reminders = Reminders()
 
+private func validateURL(_ url: String?) throws {
+    if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
+        throw ValidationError("--url must be an absolute URL such as https://example.com")
+    }
+}
+
 private struct ShowLists: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
@@ -153,10 +159,18 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(help: "A URL to attach to the reminder")
+    var url: String?
+
+    func validate() throws {
+        try validateURL(self.url)
+    }
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
+            url: self.url,
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
@@ -250,19 +264,26 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
+    var url: String?
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
     var reminder: [String] = []
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.dueDate != nil && self.clearDueDate {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate
+            && self.url == nil
+        {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+                "Must specify either new reminder content, new notes, a due date change, or a URL")
         }
     }
 
@@ -274,7 +295,8 @@ private struct Edit: ParsableCommand {
             newText: newText.isEmpty ? nil : newText,
             newNotes: self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newURL: self.url
         )
     }
 }

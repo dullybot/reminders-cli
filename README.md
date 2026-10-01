@@ -69,12 +69,17 @@ $ reminders show Soon
 $ reminders add Soon Contribute to open source
 $ reminders add Soon Go to the grocery store --due-date "tomorrow 9am"
 $ reminders add Soon Something really important --priority high
+$ reminders add Soon Read this --url https://example.com
 $ reminders show Soon
 0: Ship reminders-cli
 1: Contribute to open source
 2: Go to the grocery store (in 10 hours)
 3: Something really important (priority: high)
+4: Read this <https://example.com>
 ```
+
+URLs are stored through EventKit's `url` field, which Reminders.app may not display. Use
+`edit --url ""` to remove one.
 
 #### Show reminders due on or by a date
 
