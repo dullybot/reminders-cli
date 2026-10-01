@@ -16,7 +16,30 @@ func calendarComponents(except removedComponents: Set<Calendar.Component> = []) 
     return allComponents.subtracting(removedComponents)
 }
 
+/// "in 5 minutes", "in 2 hours": NSDataDetector doesn't recognize these.
+private func componentsFromRelativeTime(_ string: String, now: Date = Date()) -> DateComponents? {
+    let words = string.lowercased().split(separator: " ")
+    guard words.count == 3, words[0] == "in", let count = Int(words[1]), count >= 0 else {
+        return nil
+    }
+
+    let component: Calendar.Component
+    switch words[2] {
+        case "minute", "minutes", "min", "mins": component = .minute
+        case "hour", "hours", "hr", "hrs": component = .hour
+        default: return nil
+    }
+
+    return calendar.date(byAdding: component, value: count, to: now).map {
+        calendar.dateComponents(in: .current, from: $0)
+    }
+}
+
 private func components(from string: String) -> DateComponents? {
+    if let components = componentsFromRelativeTime(string) {
+        return components
+    }
+
     guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
         fatalError("error: failed to create NSDataDetector")
     }

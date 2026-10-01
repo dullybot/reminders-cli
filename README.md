@@ -69,6 +69,7 @@ $ reminders show Soon
 $ reminders add Soon Contribute to open source
 $ reminders add Soon Go to the grocery store --due-date "tomorrow 9am"
 $ reminders add Soon Something really important --priority high
+$ reminders add Soon Take the bread out --due-date "in 20 minutes"
 $ reminders show Soon
 0: Ship reminders-cli
 1: Contribute to open source

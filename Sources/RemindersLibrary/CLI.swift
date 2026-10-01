@@ -42,7 +42,7 @@ private struct ShowAll: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
@@ -101,7 +101,7 @@ private struct Show: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
@@ -302,6 +302,7 @@ public struct CLI: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "reminders",
         abstract: "Interact with macOS Reminders from the command line",
+        version: "2.5.1",
         subcommands: [
             Add.self,
             Complete.self,

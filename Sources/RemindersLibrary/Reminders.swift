@@ -3,11 +3,34 @@ import EventKit
 import Foundation
 
 private let Store = EKEventStore()
-private let dateFormatter = RelativeDateTimeFormatter()
 private func formattedDueDate(from reminder: EKReminder) -> String? {
-    return reminder.dueDateComponents?.date.map {
-        dateFormatter.localizedString(for: $0, relativeTo: Date())
+    guard let components = reminder.dueDateComponents, let date = components.date else {
+        return nil
     }
+
+    return relativeDueDate(date, allDay: components.hour == nil)
+}
+
+/// Describes a due date relative to now, counting calendar days rather than
+/// elapsed 24 hour periods once it isn't today.
+func relativeDueDate(_ date: Date, allDay: Bool = false, relativeTo now: Date = Date(),
+    calendar: Calendar = .current, locale: Locale = .current) -> String
+{
+    let formatter = RelativeDateTimeFormatter()
+    formatter.calendar = calendar
+    formatter.locale = locale
+    let days = calendar.dateComponents(
+        [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+    if days == 0 {
+        if allDay {
+            formatter.dateTimeStyle = .named
+            return formatter.localizedString(from: DateComponents(day: 0))
+        }
+
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    return formatter.localizedString(from: DateComponents(day: days))
 }
 
 private extension EKReminder {
@@ -268,7 +291,7 @@ public final class Reminders {
                 }
 
                 try Store.save(reminder, commit: true)
-                print("Updated reminder '\(reminder.title!)'")
+                print("Updated reminder '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to update reminder with error: \(error)")
                 exit(1)
@@ -287,7 +310,6 @@ public final class Reminders {
         let action = complete ? "Completed" : "Uncompleted"
 
         self.reminders(on: [calendar], displayOptions: displayOptions) { reminders in
-            print(reminders.map { $0.title! })
             guard let reminder = self.getReminder(from: reminders, at: index) else {
                 print("No reminder at index \(index) on \(name)")
                 exit(1)
@@ -296,7 +318,7 @@ public final class Reminders {
             do {
                 reminder.isCompleted = complete
                 try Store.save(reminder, commit: true)
-                print("\(action) '\(reminder.title!)'")
+                print("\(action) '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to save reminder with error: \(error)")
                 exit(1)
@@ -330,7 +352,7 @@ public final class Reminders {
 
             do {
                 try Store.remove(reminder, commit: true)
-                print("Deleted '\(reminder.title!)'")
+                print("Deleted '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to delete reminder with error: \(error)")
                 exit(1)
@@ -367,7 +389,7 @@ public final class Reminders {
             case .json:
                 print(encodeToJson(data: reminder))
             default:
-                print("Added '\(reminder.title!)' to '\(calendar.title)'")
+                print("Added '\(reminder.title ?? "")' to '\(calendar.title)'")
             }
         } catch let error {
             print("Failed to save reminder with error: \(error)")
