@@ -67,11 +67,7 @@ extension EKReminder: @retroactive Encodable {
     }
     
     private func format(_ date: Date?) -> String? {
-        if #available(macOS 12.0, *) {
-            return date?.ISO8601Format()
-        } else {
-            return date?.description(with: .current)
-        }
+        return date?.ISO8601Format()
     }
 }
 

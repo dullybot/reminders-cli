@@ -9,7 +9,7 @@ public enum Sort: String, Decodable, ExpressibleByArgument, CaseIterable {
     public static let commaSeparatedCases = Self.allCases.map { $0.rawValue }.joined(separator: ", ")
 
     func sortFunction(order: CustomSortOrder) -> (EKReminder, EKReminder) -> Bool {
-        let comparison: (Date, Date) -> Bool = order == .ascending ? (<) : (>)
+        let comparison: (Date, Date) -> Bool = order == .ascending ? { $0 < $1 } : { $0 > $1 }
         switch self {
             case .none: return { _, _ in fatalError() }
             case .creationDate: return { comparison($0.creationDate!, $1.creationDate!) }
@@ -26,7 +26,7 @@ public enum Sort: String, Decodable, ExpressibleByArgument, CaseIterable {
 }
 
 // TODO: Replace with SortOrder when we drop < macOS 12.0
-public enum CustomSortOrder: String, Decodable, ExpressibleByArgument, CaseIterable {
+public enum CustomSortOrder: String, Decodable, ExpressibleByArgument, CaseIterable, Sendable {
     case ascending
     case descending
 
