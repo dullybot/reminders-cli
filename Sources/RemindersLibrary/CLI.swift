@@ -1,30 +1,13 @@
 import ArgumentParser
 import Foundation
 
-private let reminders = Reminders()
-
-/// Requests access only once a command runs, so `--help` and argument errors
-/// don't trigger the Reminders permission prompt.
-private func requireAccess() {
-    switch Reminders.requestAccess() {
-    case (true, _):
-        return
-    case (false, let error):
-        print("error: you need to grant reminders access")
-        if let error {
-            print("error: \(error.localizedDescription)")
-        }
-        exit(1)
-    }
-}
-
 private func validateURL(_ url: String?) throws {
     if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
         throw ValidationError("--url must be an absolute URL such as https://example.com")
     }
 }
 
-private struct ShowLists: ParsableCommand {
+private struct ShowLists: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
     @Option(
@@ -32,13 +15,12 @@ private struct ShowLists: ParsableCommand {
         help: "format, either of 'plain' or 'json'")
     var format: OutputFormat = .plain
 
-    func run() {
-        requireAccess()
-        reminders.showLists(outputFormat: format)
+    func run() async throws {
+        try await Reminders.authorized().showLists(outputFormat: format)
     }
 }
 
-private struct ShowAll: ParsableCommand {
+private struct ShowAll: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print all reminders")
 
@@ -68,8 +50,7 @@ private struct ShowAll: ParsableCommand {
         }
     }
 
-    func run() {
-        requireAccess()
+    func run() async throws {
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -77,13 +58,13 @@ private struct ShowAll: ParsableCommand {
             displayOptions = .all
         }
 
-        reminders.showAllReminders(
+        try await Reminders.authorized().showAllReminders(
             dueOn: self.dueDate, includeOverdue: self.includeOverdue,
             displayOptions: displayOptions, outputFormat: format)
     }
 }
 
-private struct Show: ParsableCommand {
+private struct Show: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the items on the given list")
 
@@ -128,8 +109,7 @@ private struct Show: ParsableCommand {
         }
     }
 
-    func run() {
-        requireAccess()
+    func run() async throws {
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -137,13 +117,13 @@ private struct Show: ParsableCommand {
             displayOptions = .all
         }
 
-        reminders.showListItems(
+        try await Reminders.authorized().showListItems(
             withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue,
             displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }
 
-private struct Add: ParsableCommand {
+private struct Add: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Add a reminder to a list")
 
@@ -201,9 +181,8 @@ private struct Add: ParsableCommand {
         }
     }
 
-    func run() {
-        requireAccess()
-        reminders.addReminder(
+    func run() async throws {
+        try await Reminders.authorized().addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
             url: self.url,
@@ -216,7 +195,7 @@ private struct Add: ParsableCommand {
     }
 }
 
-private struct Complete: ParsableCommand {
+private struct Complete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Complete a reminder")
 
@@ -229,13 +208,12 @@ private struct Complete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
-    func run() {
-        requireAccess()
-        reminders.setComplete(true, itemAtIndex: self.index, onListNamed: self.listName)
+    func run() async throws {
+        try await Reminders.authorized().setComplete(true, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
 
-private struct Uncomplete: ParsableCommand {
+private struct Uncomplete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Uncomplete a reminder")
 
@@ -248,13 +226,12 @@ private struct Uncomplete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
-    func run() {
-        requireAccess()
-        reminders.setComplete(false, itemAtIndex: self.index, onListNamed: self.listName)
+    func run() async throws {
+        try await Reminders.authorized().setComplete(false, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
 
-private struct Delete: ParsableCommand {
+private struct Delete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Delete a reminder")
 
@@ -280,8 +257,7 @@ private struct Delete: ParsableCommand {
         }
     }
 
-    func run() {
-        requireAccess()
+    func run() async throws {
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -289,17 +265,17 @@ private struct Delete: ParsableCommand {
             displayOptions = .all
         }
 
-        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName, displayOptions: displayOptions)
+        try await Reminders.authorized().delete(itemAtIndex: self.index, onListNamed: self.listName, displayOptions: displayOptions)
     }
 }
 
-func listNameCompletion(_ arguments: [String]) -> [String] {
+@Sendable func listNameCompletion(_ arguments: [String], _ index: Int, _ prefix: String) -> [String] {
     // NOTE: A list name with ':' was separated in zsh completion, there might be more of these or
     // this might break other shells
-    return reminders.getListNames().map { $0.replacingOccurrences(of: ":", with: "\\:") }
+    return Reminders.listNamesIfAuthorized().map { $0.replacingOccurrences(of: ":", with: "\\:") }
 }
 
-private struct Edit: ParsableCommand {
+private struct Edit: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Edit the text of a reminder")
 
@@ -382,10 +358,9 @@ private struct Edit: ParsableCommand {
         }
     }
 
-    func run() {
-        requireAccess()
+    func run() async throws {
         let newText = self.reminder.joined(separator: " ")
-        reminders.edit(
+        try await Reminders.authorized().edit(
             itemAtIndex: self.index,
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
@@ -403,7 +378,7 @@ private struct Edit: ParsableCommand {
 }
 
 
-private struct NewList: ParsableCommand {
+private struct NewList: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Create a new list")
 
@@ -416,13 +391,12 @@ private struct NewList: ParsableCommand {
         help: "The name or identifier of the source of the list, if all your lists use the same source it will default to that")
     var source: String?
 
-    func run() {
-        requireAccess()
-        reminders.newList(with: self.listName, source: self.source)
+    func run() async throws {
+        try await Reminders.authorized().newList(with: self.listName, source: self.source)
     }
 }
 
-public struct CLI: ParsableCommand {
+public struct CLI: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "reminders",
         abstract: "Interact with macOS Reminders from the command line",
