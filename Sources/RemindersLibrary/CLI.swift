@@ -153,6 +153,19 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    func validate() throws {
+        if self.alarm.contains(where: \.needsDueDate) && self.dueDate == nil {
+            throw ValidationError("Relative --alarm offsets require --due-date")
+        }
+    }
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
@@ -160,6 +173,7 @@ private struct Add: ParsableCommand {
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            alarms: self.alarm,
             outputFormat: format)
     }
 }
@@ -250,6 +264,16 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    @Flag(help: "Remove all alarms, applied before any --alarm")
+    var clearAlarms = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -260,9 +284,11 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate
+            && self.alarm.isEmpty && !self.clearAlarms
+        {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+                "Must specify either new reminder content, new notes, a due date change, or an alarm change")
         }
     }
 
@@ -274,7 +300,9 @@ private struct Edit: ParsableCommand {
             newText: newText.isEmpty ? nil : newText,
             newNotes: self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newAlarms: self.alarm,
+            clearAlarms: self.clearAlarms
         )
     }
 }

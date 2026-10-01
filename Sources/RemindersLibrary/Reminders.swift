@@ -19,10 +19,12 @@ private extension EKReminder {
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
+    let alarmDates = (reminder.alarms ?? []).compactMap { $0.fireDate(for: reminder) }
+    let alarmString = alarmDates.isEmpty ? "" : " (alarms: \(alarmDates.map { dateFormatter.localizedString(for: $0, relativeTo: Date()) }.joined(separator: ", ")))"
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(alarmString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -236,7 +238,9 @@ public final class Reminders {
         newText: String?,
         newNotes: String?,
         newDueDateComponents: DateComponents? = nil,
-        clearDueDate: Bool = false)
+        clearDueDate: Bool = false,
+        newAlarms: [AlarmSpec] = [],
+        clearAlarms: Bool = false)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -266,6 +270,19 @@ public final class Reminders {
                         reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
                     }
                 }
+
+                if clearAlarms {
+                    for alarm in reminder.alarms ?? [] {
+                        reminder.removeAlarm(alarm)
+                    }
+                }
+
+                if newAlarms.contains(where: \.needsDueDate) && reminder.dueDateComponents?.date == nil {
+                    print("Alarms relative to the due date need a reminder with a due date")
+                    exit(1)
+                }
+
+                addAlarms(newAlarms, to: reminder)
 
                 try Store.save(reminder, commit: true)
                 print("Updated reminder '\(reminder.title!)'")
@@ -348,6 +365,7 @@ public final class Reminders {
         toListNamed name: String,
         dueDateComponents: DateComponents?,
         priority: Priority,
+        alarms: [AlarmSpec],
         outputFormat: OutputFormat)
     {
         let calendar = self.calendar(withName: name)
@@ -362,6 +380,7 @@ public final class Reminders {
         }
 
         do {
+            addAlarms(alarms, to: reminder)
             try Store.save(reminder, commit: true)
             switch (outputFormat) {
             case .json:
@@ -424,6 +443,12 @@ public final class Reminders {
         }
     }
 
+}
+
+private func addAlarms(_ alarms: [AlarmSpec], to reminder: EKReminder) {
+    for date in alarms.compactMap({ $0.date(dueDate: reminder.dueDateComponents?.date) }) {
+        reminder.addAlarm(EKAlarm(absoluteDate: date))
+    }
 }
 
 private func encodeToJson(data: Encodable) -> String {
