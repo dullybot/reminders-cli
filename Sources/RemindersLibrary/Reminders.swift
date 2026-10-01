@@ -3,11 +3,34 @@ import EventKit
 import Foundation
 
 private let Store = EKEventStore()
-private let dateFormatter = RelativeDateTimeFormatter()
 private func formattedDueDate(from reminder: EKReminder) -> String? {
-    return reminder.dueDateComponents?.date.map {
-        dateFormatter.localizedString(for: $0, relativeTo: Date())
+    guard let components = reminder.dueDateComponents, let date = components.date else {
+        return nil
     }
+
+    return relativeDueDate(date, allDay: components.hour == nil)
+}
+
+/// Describes a due date relative to now, counting calendar days rather than
+/// elapsed 24 hour periods once it isn't today.
+func relativeDueDate(_ date: Date, allDay: Bool = false, relativeTo now: Date = Date(),
+    calendar: Calendar = .current, locale: Locale = .current) -> String
+{
+    let formatter = RelativeDateTimeFormatter()
+    formatter.calendar = calendar
+    formatter.locale = locale
+    let days = calendar.dateComponents(
+        [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+    if days == 0 {
+        if allDay {
+            formatter.dateTimeStyle = .named
+            return formatter.localizedString(from: DateComponents(day: 0))
+        }
+
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    return formatter.localizedString(from: DateComponents(day: days))
 }
 
 private extension EKReminder {
