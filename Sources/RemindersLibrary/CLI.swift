@@ -42,7 +42,7 @@ private struct ShowAll: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
@@ -101,7 +101,7 @@ private struct Show: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
