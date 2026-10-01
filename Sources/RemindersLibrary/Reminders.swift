@@ -308,19 +308,14 @@ public final class Reminders {
         semaphore.wait()
     }
 
-    func delete(itemAtIndex index: String, onListNamed name: String) {
+    func delete(itemAtIndex index: String, onListNamed name: String, displayOptions: DisplayOptions) {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
 
-        // Numeric indexes are only meaningful against the same display set that
-        // `show` uses by default (incomplete-only), so keep that scope when the
-        // caller passes a plain integer index — otherwise a numeric index would
-        // resolve against a differently-ordered/sized array than the one the
-        // user actually saw. External identifiers are stable regardless of
-        // completion state, so widen the fetch to `.all` in that case, so a
-        // reminder already marked complete can still be found and deleted by
-        // its id instead of failing with "No reminder at index ...".
-        let displayOptions: DisplayOptions = Int(index) == nil ? .all : .incomplete
+        // Numeric indexes resolve against the same display set `show` printed
+        // them from, so callers pass the same completion flags. External
+        // identifiers are stable regardless of completion state.
+        let displayOptions = Int(index) == nil ? .all : displayOptions
 
         self.reminders(on: [calendar], displayOptions: displayOptions) { reminders in
             guard let reminder = self.getReminder(from: reminders, at: index) else {

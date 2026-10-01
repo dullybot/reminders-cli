@@ -213,8 +213,28 @@ private struct Delete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
+    @Flag(help: "Index into completed items only, matching 'show --only-completed'")
+    var onlyCompleted = false
+
+    @Flag(help: "Index into all items, matching 'show --include-completed'")
+    var includeCompleted = false
+
+    func validate() throws {
+        if self.onlyCompleted && self.includeCompleted {
+            throw ValidationError(
+                "Cannot specify both --include-completed and --only-completed")
+        }
+    }
+
     func run() {
-        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName)
+        var displayOptions = DisplayOptions.incomplete
+        if self.onlyCompleted {
+            displayOptions = .complete
+        } else if self.includeCompleted {
+            displayOptions = .all
+        }
+
+        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName, displayOptions: displayOptions)
     }
 }
 
