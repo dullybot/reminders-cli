@@ -268,7 +268,8 @@ public final class Reminders {
         newText: String?,
         newNotes: String?,
         newDueDateComponents: DateComponents? = nil,
-        clearDueDate: Bool = false)
+        clearDueDate: Bool = false,
+        newPriority: Priority? = nil)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -283,6 +284,9 @@ public final class Reminders {
                 reminder.title = newText ?? reminder.title
                 if let newNotes {
                     reminder.notes = newNotes.isEmpty ? nil : newNotes
+                }
+                if let newPriority {
+                    reminder.priority = Int(newPriority.value.rawValue)
                 }
 
                 if clearDueDate {

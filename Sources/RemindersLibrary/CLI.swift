@@ -295,6 +295,11 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the notes from the reminder")
     var clearNotes = false
 
+    @Option(
+        name: .shortAndLong,
+        help: "The new priority of the reminder")
+    var priority: Priority?
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -310,10 +315,10 @@ private struct Edit: ParsableCommand {
         }
 
         if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
-            && !self.clearDueDate
+            && !self.clearDueDate && self.priority == nil
         {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+                "Must specify either new reminder content, new notes, a due date change, or a priority")
         }
     }
 
@@ -326,7 +331,8 @@ private struct Edit: ParsableCommand {
             newText: newText.isEmpty ? nil : newText,
             newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newPriority: self.priority
         )
     }
 }
