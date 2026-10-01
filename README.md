@@ -104,6 +104,18 @@ $ reminders add Soon Standup --due-date "tomorrow 10am" --repeat weekly --repeat
 $ reminders edit Soon 0 --clear-repeat
 ```
 
+#### Add alarms
+
+`--alarm` takes a date, or an offset from the due date such as `-15m`, `-1h`,
+`-2d` or `+30m`, and can be passed more than once. These are added alongside
+the alarm a due time already gets. `edit` also takes `--clear-alarms`.
+
+```
+$ reminders add Soon Call mom --due-date "tomorrow 6pm" --alarm -15m --alarm "tomorrow 9am"
+$ reminders show Soon
+0: Call mom (in 1 day) (alarms: in 1 day, in 1 day, in 1 day)
+```
+
 #### Show reminders due on or by a date
 
 ```

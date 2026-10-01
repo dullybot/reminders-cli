@@ -183,10 +183,21 @@ private struct Add: ParsableCommand {
     @OptionGroup
     var repeatOptions: RepeatOptions
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
     func validate() throws {
         try validateURL(self.url)
         if self.repeatOptions.frequency != nil && self.dueDate == nil {
             throw ValidationError("--repeat requires --due-date")
+        }
+
+        if self.alarm.contains(where: \.needsDueDate) && self.dueDate == nil {
+            throw ValidationError("Relative --alarm offsets require --due-date")
         }
     }
 
@@ -200,6 +211,7 @@ private struct Add: ParsableCommand {
             dueDateComponents: self.dueDate,
             priority: priority,
             recurrence: self.repeatOptions.recurrence,
+            alarms: self.alarm,
             outputFormat: format)
     }
 }
@@ -330,6 +342,16 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Stop the reminder repeating")
     var clearRepeat = false
 
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    @Flag(help: "Remove all alarms, applied before any --alarm")
+    var clearAlarms = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -353,9 +375,10 @@ private struct Edit: ParsableCommand {
         if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
             && !self.clearDueDate && self.priority == nil && self.url == nil
             && self.repeatOptions.frequency == nil && !self.clearRepeat
+            && self.alarm.isEmpty && !self.clearAlarms
         {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, a due date change, a priority, a URL, or a repeat change")
+                "Must specify either new reminder content, new notes, a due date change, a priority, a URL, a repeat change, or an alarm change")
         }
     }
 
@@ -372,7 +395,9 @@ private struct Edit: ParsableCommand {
             newPriority: self.priority,
             newURL: self.url,
             newRecurrence: self.repeatOptions.recurrence,
-            clearRecurrence: self.clearRepeat
+            clearRecurrence: self.clearRepeat,
+            newAlarms: self.alarm,
+            clearAlarms: self.clearAlarms
         )
     }
 }

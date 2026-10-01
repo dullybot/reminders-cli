@@ -43,11 +43,13 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let repeatString = reminder.recurrenceRules?.first.map { " (repeats \(describe($0)))" } ?? ""
+    let alarmDates = (reminder.alarms ?? []).compactMap { $0.fireDate(for: reminder) }
+    let alarmString = alarmDates.isEmpty ? "" : " (alarms: \(alarmDates.map { relativeDueDate($0) }.joined(separator: ", ")))"
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
     let urlString = reminder.url.map { " <\($0.absoluteString)>" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(repeatString)\(priorityString)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(urlString)\(dateString)\(repeatString)\(alarmString)\(priorityString)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -274,7 +276,9 @@ public final class Reminders {
         newPriority: Priority? = nil,
         newURL: String? = nil,
         newRecurrence: Recurrence? = nil,
-        clearRecurrence: Bool = false)
+        clearRecurrence: Bool = false,
+        newAlarms: [AlarmSpec] = [],
+        clearAlarms: Bool = false)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -322,6 +326,19 @@ public final class Reminders {
                 if let newRecurrence {
                     reminder.addRecurrenceRule(newRecurrence.rule)
                 }
+
+                if clearAlarms {
+                    for alarm in reminder.alarms ?? [] {
+                        reminder.removeAlarm(alarm)
+                    }
+                }
+
+                if newAlarms.contains(where: \.needsDueDate) && reminder.dueDateComponents?.date == nil {
+                    print("Alarms relative to the due date need a reminder with a due date")
+                    exit(1)
+                }
+
+                addAlarms(newAlarms, to: reminder)
 
                 try Store.save(reminder, commit: true)
                 print("Updated reminder '\(reminder.title ?? "")'")
@@ -400,6 +417,7 @@ public final class Reminders {
         dueDateComponents: DateComponents?,
         priority: Priority,
         recurrence: Recurrence?,
+        alarms: [AlarmSpec],
         outputFormat: OutputFormat)
     {
         let calendar = self.calendar(withName: name)
@@ -419,6 +437,7 @@ public final class Reminders {
         }
 
         do {
+            addAlarms(alarms, to: reminder)
             try Store.save(reminder, commit: true)
             switch (outputFormat) {
             case .json:
@@ -489,6 +508,12 @@ func dueDayRange(for date: Date, includeOverdue: Bool, calendar: Calendar = .cur
     // EventKit's start bound is exclusive, which would drop all-day reminders due at midnight.
     let start = calendar.startOfDay(for: date)
     return (includeOverdue ? nil : start.addingTimeInterval(-1), calendar.date(byAdding: .day, value: 1, to: start))
+}
+
+private func addAlarms(_ alarms: [AlarmSpec], to reminder: EKReminder) {
+    for date in alarms.compactMap({ $0.date(dueDate: reminder.dueDateComponents?.date) }) {
+        reminder.addAlarm(EKAlarm(absoluteDate: date))
+    }
 }
 
 private func encodeToJson(data: Encodable) -> String {
