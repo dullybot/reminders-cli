@@ -287,7 +287,6 @@ public final class Reminders {
         let action = complete ? "Completed" : "Uncompleted"
 
         self.reminders(on: [calendar], displayOptions: displayOptions) { reminders in
-            print(reminders.map { $0.title! })
             guard let reminder = self.getReminder(from: reminders, at: index) else {
                 print("No reminder at index \(index) on \(name)")
                 exit(1)
