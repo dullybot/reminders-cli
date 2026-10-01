@@ -268,7 +268,7 @@ public final class Reminders {
                 }
 
                 try Store.save(reminder, commit: true)
-                print("Updated reminder '\(reminder.title!)'")
+                print("Updated reminder '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to update reminder with error: \(error)")
                 exit(1)
@@ -296,7 +296,7 @@ public final class Reminders {
             do {
                 reminder.isCompleted = complete
                 try Store.save(reminder, commit: true)
-                print("\(action) '\(reminder.title!)'")
+                print("\(action) '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to save reminder with error: \(error)")
                 exit(1)
@@ -330,7 +330,7 @@ public final class Reminders {
 
             do {
                 try Store.remove(reminder, commit: true)
-                print("Deleted '\(reminder.title!)'")
+                print("Deleted '\(reminder.title ?? "")'")
             } catch let error {
                 print("Failed to delete reminder with error: \(error)")
                 exit(1)
@@ -367,7 +367,7 @@ public final class Reminders {
             case .json:
                 print(encodeToJson(data: reminder))
             default:
-                print("Added '\(reminder.title!)' to '\(calendar.title)'")
+                print("Added '\(reminder.title ?? "")' to '\(calendar.title)'")
             }
         } catch let error {
             print("Failed to save reminder with error: \(error)")
