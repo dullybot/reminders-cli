@@ -43,7 +43,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
-    let notesString = reminder.notes.map { " (\($0))" } ?? ""
+    let notesString = reminder.notes.flatMap { $0.isEmpty ? nil : " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
     return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)"
 }
@@ -281,7 +281,9 @@ public final class Reminders {
 
             do {
                 reminder.title = newText ?? reminder.title
-                reminder.notes = newNotes ?? reminder.notes
+                if let newNotes {
+                    reminder.notes = newNotes.isEmpty ? nil : newNotes
+                }
 
                 if clearDueDate {
                     reminder.dueDateComponents = nil
@@ -380,7 +382,7 @@ public final class Reminders {
         let reminder = EKReminder(eventStore: Store)
         reminder.calendar = calendar
         reminder.title = string
-        reminder.notes = notes
+        reminder.notes = notes?.isEmpty == true ? nil : notes
         reminder.dueDateComponents = dueDateComponents
         reminder.priority = Int(priority.value.rawValue)
         if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
