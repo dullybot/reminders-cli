@@ -76,6 +76,23 @@ $ reminders show Soon
 3: Something really important (priority: high)
 ```
 
+#### Flags, tags, subtasks and assignees
+
+EventKit doesn't expose these, so they use Apple's private ReminderKit
+framework and may stop working after a macOS update. They need a list in an
+iCloud account, and assignees need a list shared through iCloud.
+
+```
+$ reminders add Soon Ship it --flag --tag work --tag release
+$ reminders add Soon Write changelog --parent 0
+$ reminders edit Soon 1 --assign "Sam"
+$ reminders show Soon
+0: Ship it #release #work (flagged)
+1: Write changelog (assigned to Sam) (subtask of 'Ship it')
+$ reminders edit Soon 1 --unnest --unassign
+$ reminders edit Soon 0 --unflag --remove-tag release
+```
+
 #### Show reminders due on or by a date
 
 ```
