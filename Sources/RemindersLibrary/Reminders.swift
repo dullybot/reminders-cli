@@ -214,30 +214,34 @@ public final class Reminders {
 
     func newList(with name: String, source requestedSourceName: String?) {
         let store = EKEventStore()
+        // Accounts such as iCloud can expose several sources with the same title,
+        // only one of which holds reminders, so prefer sources that already do.
         let sources = store.sources
-        guard var source = sources.first else {
-            print("No existing list sources were found, please create a list in Reminders.app")
-            exit(1)
-        }
-
-        if let requestedSourceName = requestedSourceName {
-            guard let requestedSource = sources.first(where: { $0.title == requestedSourceName }) else
-            {
+        let reminderSources = sources.filter { !$0.calendars(for: .reminder).isEmpty }
+        let candidates = reminderSources.isEmpty ? sources : reminderSources
+        let source: EKSource
+        if let requestedSourceName {
+            let matches = { (source: EKSource) in
+                source.title == requestedSourceName || source.sourceIdentifier == requestedSourceName
+            }
+            guard let requestedSource = candidates.first(where: matches) ?? sources.first(where: matches) else {
                 print("No source named '\(requestedSourceName)'")
                 exit(1)
             }
 
             source = requestedSource
+        } else if candidates.count == 1, let onlySource = candidates.first {
+            source = onlySource
+        } else if candidates.isEmpty {
+            print("No existing list sources were found, please create a list in Reminders.app")
+            exit(1)
         } else {
-            let uniqueSources = Set(sources.map { $0.title })
-            if uniqueSources.count > 1 {
-                print("Multiple sources were found, please specify one with --source:")
-                for source in uniqueSources {
-                    print("  \(source)")
-                }
-
-                exit(1)
+            print("Multiple sources were found, please specify one with --source:")
+            for source in candidates {
+                print("  \(source.title) (\(source.sourceIdentifier))")
             }
+
+            exit(1)
         }
 
         let newList = EKCalendar(for: .reminder, eventStore: store)
