@@ -17,6 +17,7 @@ extension EKReminder: @retroactive Encodable {
         case dueDate
         case list
         case recurrence
+        case alarms
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -26,7 +27,7 @@ extension EKReminder: @retroactive Encodable {
         try container.encode(self.isCompleted, forKey: .isCompleted)
         try container.encode(self.priority, forKey: .priority)
         try container.encode(self.calendar.title, forKey: .list)
-        try container.encodeIfPresent(self.notes, forKey: .notes)
+        try container.encodeIfPresent(self.notes.flatMap { $0.isEmpty ? nil : $0 }, forKey: .notes)
         
         // url field is nil
         // https://developer.apple.com/forums/thread/128140
@@ -42,6 +43,11 @@ extension EKReminder: @retroactive Encodable {
                 }
                 break
             }
+        }
+
+        let alarmDates = (self.alarms ?? []).compactMap { $0.fireDate(for: self) }
+        if !alarmDates.isEmpty {
+            try container.encode(alarmDates.compactMap(format), forKey: .alarms)
         }
 
         if let startDateComponents = self.startDateComponents {

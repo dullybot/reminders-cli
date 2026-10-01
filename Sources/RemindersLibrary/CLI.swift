@@ -18,6 +18,12 @@ private func requireAccess() {
     }
 }
 
+private func validateURL(_ url: String?) throws {
+    if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
+        throw ValidationError("--url must be an absolute URL such as https://example.com")
+    }
+}
+
 private struct ShowLists: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
@@ -171,14 +177,41 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(help: "A URL to attach to the reminder")
+    var url: String?
+
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    func validate() throws {
+        try validateURL(self.url)
+        if self.repeatOptions.frequency != nil && self.dueDate == nil {
+            throw ValidationError("--repeat requires --due-date")
+        }
+
+        if self.alarm.contains(where: \.needsDueDate) && self.dueDate == nil {
+            throw ValidationError("Relative --alarm offsets require --due-date")
+        }
+    }
+
     func run() {
         requireAccess()
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
+            url: self.url,
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            recurrence: self.repeatOptions.recurrence,
+            alarms: self.alarm,
             outputFormat: format)
     }
 }
@@ -292,19 +325,60 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Flag(help: "Remove the notes from the reminder")
+    var clearNotes = false
+
+    @Option(
+        name: .shortAndLong,
+        help: "The new priority of the reminder")
+    var priority: Priority?
+
+    @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
+    var url: String?
+
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Flag(help: "Stop the reminder repeating")
+    var clearRepeat = false
+
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    @Flag(help: "Remove all alarms, applied before any --alarm")
+    var clearAlarms = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
     var reminder: [String] = []
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.dueDate != nil && self.clearDueDate {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
+        if self.notes != nil && self.clearNotes {
+            throw ValidationError("Cannot specify both --notes and --clear-notes")
+        }
+
+        if self.repeatOptions.frequency != nil && self.clearRepeat {
+            throw ValidationError("Cannot specify both --repeat and --clear-repeat")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
+            && !self.clearDueDate && self.priority == nil && self.url == nil
+            && self.repeatOptions.frequency == nil && !self.clearRepeat
+            && self.alarm.isEmpty && !self.clearAlarms
+        {
             throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+                "Must specify either new reminder content, new notes, a due date change, a priority, a URL, a repeat change, or an alarm change")
         }
     }
 
@@ -315,9 +389,15 @@ private struct Edit: ParsableCommand {
             itemAtIndex: self.index,
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
-            newNotes: self.notes,
+            newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newPriority: self.priority,
+            newURL: self.url,
+            newRecurrence: self.repeatOptions.recurrence,
+            clearRecurrence: self.clearRepeat,
+            newAlarms: self.alarm,
+            clearAlarms: self.clearAlarms
         )
     }
 }
