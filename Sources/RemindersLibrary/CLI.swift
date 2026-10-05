@@ -1,9 +1,17 @@
 import ArgumentParser
 import Foundation
 
-private let reminders = Reminders()
+private func validateURL(_ url: String?) throws {
+    if let url, !url.isEmpty, URL(string: url)?.scheme == nil {
+        throw ValidationError("--url must be an absolute URL such as https://example.com")
+    }
+}
 
-private struct ShowLists: ParsableCommand {
+private func normalizedTags(_ tags: [String]) -> [String] {
+    tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }.filter { !$0.isEmpty }
+}
+
+private struct ShowLists: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the name of lists to pass to other commands")
     @Option(
@@ -11,12 +19,12 @@ private struct ShowLists: ParsableCommand {
         help: "format, either of 'plain' or 'json'")
     var format: OutputFormat = .plain
 
-    func run() {
-        reminders.showLists(outputFormat: format)
+    func run() async throws {
+        try await Reminders.authorized().showLists(outputFormat: format)
     }
 }
 
-private struct ShowAll: ParsableCommand {
+private struct ShowAll: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print all reminders")
 
@@ -42,11 +50,11 @@ private struct ShowAll: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
-    func run() {
+    func run() async throws {
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -54,13 +62,13 @@ private struct ShowAll: ParsableCommand {
             displayOptions = .all
         }
 
-        reminders.showAllReminders(
+        try await Reminders.authorized().showAllReminders(
             dueOn: self.dueDate, includeOverdue: self.includeOverdue,
             displayOptions: displayOptions, outputFormat: format)
     }
 }
 
-private struct Show: ParsableCommand {
+private struct Show: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Print the items on the given list")
 
@@ -101,11 +109,11 @@ private struct Show: ParsableCommand {
     func validate() throws {
         if self.onlyCompleted && self.includeCompleted {
             throw ValidationError(
-                "Cannot specify both --show-completed and --only-completed")
+                "Cannot specify both --include-completed and --only-completed")
         }
     }
 
-    func run() {
+    func run() async throws {
         var displayOptions = DisplayOptions.incomplete
         if self.onlyCompleted {
             displayOptions = .complete
@@ -113,13 +121,13 @@ private struct Show: ParsableCommand {
             displayOptions = .all
         }
 
-        reminders.showListItems(
+        try await Reminders.authorized().showListItems(
             withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue,
             displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }
 
-private struct Add: ParsableCommand {
+struct Add: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Add a reminder to a list")
 
@@ -153,18 +161,63 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
-    func run() {
-        reminders.addReminder(
+    @Option(help: "A URL to attach to the reminder")
+    var url: String?
+
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    func validate() throws {
+        try validateURL(self.url)
+        if self.repeatOptions.frequency != nil && self.dueDate == nil {
+            throw ValidationError("--repeat requires --due-date")
+        }
+
+        if self.alarm.contains(where: \.needsDueDate) && self.dueDate == nil {
+            throw ValidationError("Relative --alarm offsets require --due-date")
+        }
+    }
+
+    func run() async throws {
+        try await Reminders.authorized().addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
+            url: self.url,
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            recurrence: self.repeatOptions.recurrence,
+            alarms: self.alarm,
+            reminderKitChanges: ReminderKitChanges(
+                flagged: self.flag ? true : nil,
+                addTags: normalizedTags(self.tag),
+                assignee: self.assign,
+                url: self.url),
+            parentIndex: self.parent,
             outputFormat: format)
     }
 }
 
-private struct Complete: ParsableCommand {
+private struct Complete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Complete a reminder")
 
@@ -177,12 +230,12 @@ private struct Complete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
-    func run() {
-        reminders.setComplete(true, itemAtIndex: self.index, onListNamed: self.listName)
+    func run() async throws {
+        try await Reminders.authorized().setComplete(true, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
 
-private struct Uncomplete: ParsableCommand {
+private struct Uncomplete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Uncomplete a reminder")
 
@@ -195,12 +248,12 @@ private struct Uncomplete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
-    func run() {
-        reminders.setComplete(false, itemAtIndex: self.index, onListNamed: self.listName)
+    func run() async throws {
+        try await Reminders.authorized().setComplete(false, itemAtIndex: self.index, onListNamed: self.listName)
     }
 }
 
-private struct Delete: ParsableCommand {
+private struct Delete: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Delete a reminder")
 
@@ -213,18 +266,38 @@ private struct Delete: ParsableCommand {
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
 
-    func run() {
-        reminders.delete(itemAtIndex: self.index, onListNamed: self.listName)
+    @Flag(help: "Index into completed items only, matching 'show --only-completed'")
+    var onlyCompleted = false
+
+    @Flag(help: "Index into all items, matching 'show --include-completed'")
+    var includeCompleted = false
+
+    func validate() throws {
+        if self.onlyCompleted && self.includeCompleted {
+            throw ValidationError(
+                "Cannot specify both --include-completed and --only-completed")
+        }
+    }
+
+    func run() async throws {
+        var displayOptions = DisplayOptions.incomplete
+        if self.onlyCompleted {
+            displayOptions = .complete
+        } else if self.includeCompleted {
+            displayOptions = .all
+        }
+
+        try await Reminders.authorized().delete(itemAtIndex: self.index, onListNamed: self.listName, displayOptions: displayOptions)
     }
 }
 
-func listNameCompletion(_ arguments: [String]) -> [String] {
+@Sendable func listNameCompletion(_ arguments: [String], _ index: Int, _ prefix: String) -> [String] {
     // NOTE: A list name with ':' was separated in zsh completion, there might be more of these or
     // this might break other shells
-    return reminders.getListNames().map { $0.replacingOccurrences(of: ":", with: "\\:") }
+    return Reminders.listNamesIfAuthorized().map { $0.replacingOccurrences(of: ":", with: "\\:") }
 }
 
-private struct Edit: ParsableCommand {
+struct Edit: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Edit the text of a reminder")
 
@@ -250,37 +323,133 @@ private struct Edit: ParsableCommand {
     @Flag(help: "Remove the due date from the reminder")
     var clearDueDate = false
 
+    @Flag(help: "Remove the notes from the reminder")
+    var clearNotes = false
+
+    @Option(
+        name: .shortAndLong,
+        help: "The new priority of the reminder")
+    var priority: Priority?
+
+    @Option(help: "The URL to set on the reminder, pass \"\" to remove it")
+    var url: String?
+
+    @OptionGroup
+    var repeatOptions: RepeatOptions
+
+    @Flag(help: "Stop the reminder repeating")
+    var clearRepeat = false
+
+    @Option(
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Add an alarm at a date, or relative to the due date like -15m, -1h, -2d (repeatable)",
+            valueName: "date-or-offset"))
+    var alarm: [AlarmSpec] = []
+
+    @Flag(help: "Remove all alarms, applied before any --alarm")
+    var clearAlarms = false
+
+    @Flag(help: "Flag the reminder")
+    var flag = false
+
+    @Flag(help: "Unflag the reminder")
+    var unflag = false
+
+    @Option(name: .shortAndLong, help: "Add a tag, without the leading # (repeatable)")
+    var tag: [String] = []
+
+    @Option(help: "Remove a tag (repeatable)")
+    var removeTag: [String] = []
+
+    @Flag(help: "Remove all tags, applied before any --tag")
+    var clearTags = false
+
+    @Option(help: "Make this a subtask of the reminder at this index or id on the same list")
+    var parent: String?
+
+    @Flag(help: "Make this subtask a top level reminder")
+    var unnest = false
+
+    @Option(help: "Assign to someone the list is shared with, by name or email")
+    var assign: String?
+
+    @Flag(help: "Remove the assignee")
+    var unassign = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
     var reminder: [String] = []
 
     func validate() throws {
+        try validateURL(self.url)
+
         if self.dueDate != nil && self.clearDueDate {
             throw ValidationError("Cannot specify both --due-date and --clear-due-date")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
-            throw ValidationError(
-                "Must specify either new reminder content, new notes, or a due date change")
+        if self.notes != nil && self.clearNotes {
+            throw ValidationError("Cannot specify both --notes and --clear-notes")
+        }
+
+        if self.repeatOptions.frequency != nil && self.clearRepeat {
+            throw ValidationError("Cannot specify both --repeat and --clear-repeat")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && !self.clearNotes && self.dueDate == nil
+            && !self.clearDueDate && self.priority == nil && self.url == nil
+            && self.repeatOptions.frequency == nil && !self.clearRepeat
+            && self.alarm.isEmpty && !self.clearAlarms
+            && self.reminderKitChanges.isEmpty && self.parent == nil
+        {
+            throw ValidationError("Must specify either new reminder content or a field to change")
+        }
+
+        for (first, second, names) in [
+            (self.flag, self.unflag, "--flag and --unflag"),
+            (self.parent != nil, self.unnest, "--parent and --unnest"),
+            (self.assign != nil, self.unassign, "--assign and --unassign"),
+        ] where first && second {
+            throw ValidationError("Cannot specify both \(names)")
         }
     }
 
-    func run() {
+    var reminderKitChanges: ReminderKitChanges {
+        ReminderKitChanges(
+            flagged: self.flag ? true : self.unflag ? false : nil,
+            addTags: normalizedTags(self.tag),
+            removeTags: normalizedTags(self.removeTag),
+            clearTags: self.clearTags,
+            unnest: self.unnest,
+            assignee: self.assign,
+            unassign: self.unassign,
+            url: self.url)
+    }
+
+    func run() async throws {
         let newText = self.reminder.joined(separator: " ")
-        reminders.edit(
+        try await Reminders.authorized().edit(
             itemAtIndex: self.index,
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
-            newNotes: self.notes,
+            newNotes: self.clearNotes ? "" : self.notes,
             newDueDateComponents: self.dueDate,
-            clearDueDate: self.clearDueDate
+            clearDueDate: self.clearDueDate,
+            newPriority: self.priority,
+            newURL: self.url,
+            newRecurrence: self.repeatOptions.recurrence,
+            clearRecurrence: self.clearRepeat,
+            newAlarms: self.alarm,
+            clearAlarms: self.clearAlarms,
+            reminderKitChanges: self.reminderKitChanges,
+            parentIndex: self.parent
         )
     }
 }
 
 
-private struct NewList: ParsableCommand {
+private struct NewList: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Create a new list")
 
@@ -290,18 +459,19 @@ private struct NewList: ParsableCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "The name of the source of the list, if all your lists use the same source it will default to that")
+        help: "The name or identifier of the source of the list, if all your lists use the same source it will default to that")
     var source: String?
 
-    func run() {
-        reminders.newList(with: self.listName, source: self.source)
+    func run() async throws {
+        try await Reminders.authorized().newList(with: self.listName, source: self.source)
     }
 }
 
-public struct CLI: ParsableCommand {
+public struct CLI: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "reminders",
         abstract: "Interact with macOS Reminders from the command line",
+        version: "2.5.1",
         subcommands: [
             Add.self,
             Complete.self,

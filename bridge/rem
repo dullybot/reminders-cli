@@ -1,0 +1,9 @@
+#!/bin/zsh
+# Runs `reminders` through RemindersBridge.app, which holds the Reminders grant.
+d=~/.reminders-bridge; id=$$-$RANDOM
+printf '%s\n' "$@" > $d/$id.tmp && mv $d/$id.tmp $d/queue/$id.req
+for i in {1..300}; do
+  [[ -f $d/out/$id.rc ]] && { cat $d/out/$id.out; rc=$(<$d/out/$id.rc); rm -f $d/out/$id.{out,rc}; exit $rc; }
+  sleep 0.1
+done
+echo "rem: no reply; check launchctl print gui/$(id -u)/com.dullybot.reminders-bridge" >&2; rm -f $d/queue/$id.req; exit 1
